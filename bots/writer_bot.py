@@ -65,8 +65,8 @@ class WriterBot(BaseBot):
             """入力テキストをMarkdown整形し、ファイル添付で返す"""
             if not await self.has_access(ctx.author, "clean"):
                 return await ctx.send("🔒 有料機能です")
-            # 1. LLM呼び出し
-            md = await self.services["openai"].to_markdown(text)
+            # 1. LLM呼び出し (モデルを指定)
+            md = await self.services["openai"].to_markdown(text, model="gpt-4o-mini")
             # 2. BytesIOへ書き込み
             buf = BytesIO(md.encode("utf-8"))
             buf.seek(0)
@@ -221,7 +221,8 @@ if __name__ == "__main__":
                     openai_service = getattr(bot, 'services', {}).get("openai")
                     if openai_service:
                         try:
-                            post_content = await openai_service.summarize(post_content, max_length=140)
+                            # モデルを指定して要約
+                            post_content = await openai_service.summarize(post_content, model="gpt-4o-mini", max_length=140)
                         except Exception as e:
                             print(f"[ERROR] LLM要約失敗: {e}")
                     # 140文字超過時の警告はUI側で表示
