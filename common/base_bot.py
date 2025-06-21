@@ -17,7 +17,7 @@ class BaseBot(commands.Bot):
         self.rate_limiter = RateLimiter(db_path="rate.db")
         self.guild_config = FileGuildConfig()
         self.payment_v2 = PaymentServiceV2()
-        self.add_listener(self.on_ready)
+        # self.add_listener(self.on_ready) # on_readyは自動的に呼ばれるため不要
         # ▼サービスをひとまとめにして子ボットへ渡す
         self.services = {
             "whisper": WhisperService(),

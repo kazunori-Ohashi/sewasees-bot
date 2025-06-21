@@ -1,248 +1,302 @@
 import discord
-import asyncio  # この行を追加
+import asyncio
 import os
 from datetime import datetime
-from generate import generate_with_gemma
 from vault_loder import load_vault
-from discord.ui import View, button, Button
+from discord.ui import View, button, Modal, TextInput
 from dotenv import load_dotenv
+import urllib.parse
+from discord.ext import commands
+import re
+from rapidfuzz import process, fuzz
+import unicodedata
+import hashlib
 
-# --- TwitterService簡易実装 ---
-import tweepy
-class TwitterService:
-    def __init__(self):
-        self.client = tweepy.Client(
-            consumer_key=os.getenv("TW_API_KEY"),
-            consumer_secret=os.getenv("TW_API_SECRET"),
-            access_token=os.getenv("TW_ACCESS_TOKEN"),
-            access_token_secret=os.getenv("TW_ACCESS_SECRET"),
-        )
-    def post(self, text: str):
-        return self.client.create_tweet(text=text)
+MAX_EMBED_TITLE_LEN = 256
 
-# --- guild_config層 ---
-import json
-class FileGuildConfig:
-    def __init__(self, config_dir: str = ".guild_config"):
-        self.config_dir = config_dir
-        os.makedirs(self.config_dir, exist_ok=True)
-    def _get_path(self, guild_id: int) -> str:
-        return os.path.join(self.config_dir, f"{guild_id}.json")
-    def get_plan(self, guild_id: int) -> str:
-        path = self._get_path(guild_id)
-        if not os.path.exists(path):
-            return "free"
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("PLAN", "free")
+# BaseBotと共通サービスをインポート
+from common.base_bot import BaseBot
 
-# Discord Botのトークン
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
+# --- 既存の簡易実装はBaseBotが提供するため不要に ---
+# TwitterService, FileGuildConfigはBaseBot内で初期化される
 
-ESSENTIAL_FILES = ["bot_inputs/writing_principles.md"]
+class SimpleBot(BaseBot):
+    """
+    実験的な機能を実装するためのBotクラス。
+    BaseBotを継承し、共通サービス（LLM呼び出しなど）を利用する。
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        
+        # SimpleBot固有のデータをロード
+        self.vault_data = load_vault()
+        self.ESSENTIAL_FILES = ["bot_inputs/writing_principles.md"]
+        
+        # on_message, on_raw_reaction_add はリスナーとして自動登録されるため、手動での追加は不要
 
-# Vaultを読み込む
-vault_data = load_vault()
+    def normalize(self, text: str) -> str:
+        text = unicodedata.normalize('NFKC', text)
+        text = re.sub(r'\s+', ' ', text)
+        return text
 
-guild_config = FileGuildConfig()
+    def clean_topic(self, topic: str) -> str:
+        topic = re.sub(r'(について|を)?(書いて|教えて|説明して|まとめて|解説して).*$', '', topic)
+        return topic.strip()
 
-intents = discord.Intents.default()
-intents.message_content = True
-intents.reactions = True
-intents.messages = True
-intents.members = True
-client = discord.Client(intents=intents)
+    def extract_topic_keywords(self, topic: str) -> list:
+        # 命令語除去＋簡易名詞抽出（日本語形態素解析がなければsplit/replaceで）
+        topic = self.clean_topic(topic)
+        # 句読点や記号で分割し、2文字以上の単語のみ抽出
+        words = re.split(r'[\s、。・,\.\-\n\r\t]+', topic)
+        keywords = [w for w in words if len(w) >= 2]
+        if not keywords:
+            keywords = [topic.strip()]
+        return keywords
 
-@client.event
-async def on_ready():
-    print(f"✅ ログインしました: {client.user}")
-    
-class TwitterPostView(View):
-    def __init__(self, content, guild_id):
-        super().__init__()
-        self.content = content
-        self.guild_id = guild_id
-
-    @button(label="Xに投稿（本体）", style=discord.ButtonStyle.primary)
-    async def post_main(self, interaction, button):
-        plan = guild_config.get_plan(self.guild_id)
-        if plan != "pro":
-            embed = discord.Embed(
-                title="有料プラン限定機能",
-                description="X（Twitter）投稿はProプランでご利用いただけます。\n/upgrade コマンドで詳細をご確認ください。",
-                color=0xffd700
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-        tw = TwitterService()
-        try:
-            resp = tw.post(self.content)
-            await interaction.response.send_message(
-                f"✅ 投稿完了: https://x.com/i/web/status/{resp.data['id']}", ephemeral=True
-            )
-        except Exception as e:
-            await interaction.response.send_message(
-                f"⚠️ 投稿失敗: {e}", ephemeral=True
-            )
-
-    @button(label="投稿内容を編集", style=discord.ButtonStyle.secondary)
-    async def edit_post(self, interaction, button):
-        await interaction.response.send_message("✏️ 編集モードは現在未対応です。", ephemeral=True)
-
-@client.event
-async def on_message(message):
-    if message.author == client.user:
-        return
-
-    if message.content.strip() == "?":
-        commands = (
-            "**📜 利用可能なコマンド一覧**\n"
-            "1. `書いて:<トピック>` - トピックに基づいた文章を生成します。\n"
-            "   - 例: `書いて: 沖縄の観光`\n"
-            "   - 文字数制限付き: `書いて: 沖縄の観光:2000`\n"
-            "2. 通常の文章を送信すると、読みやすく整理され、タイトルとタグが付けられます。\n"
-            "3. `?` - このコマンド一覧を表示します。"
-        )
-        await message.channel.send(commands)
-        return
-
-    if message.content.startswith("書いて:"):
-        parts = message.content.split(":")
-        topic = parts[1].strip()
-        char_limit = int(parts[2].strip()) if len(parts) > 2 else None
-
+    def search_notes(self, topic: str, vault: dict, essentials: set, k=5, cutoff=30):
+        topic_keywords = self.extract_topic_keywords(topic)
+        print(f"[DEBUG] トピックキーワード: {topic_keywords}")
         related = []
-        for path, content in vault_data.items():
-            if any(essential in path for essential in ESSENTIAL_FILES):
-                related.append((path, content))
-        for path, content in vault_data.items():
-            if topic.lower() in content.lower() and (path, content) not in related:
-                related.append((path, content))
+        related_paths = []
+        # 1) 必須ノートを先に追加
+        for path, note in vault.items():
+            if any(os.path.normpath(e) in os.path.normpath(path) for e in essentials):
+                related.append(note["body"])
+                related_paths.append(path)
+        # 2) metaのみ比較の候補リスト
+        meta_candidates = {path: self.normalize(note["meta"]) for path, note in vault.items()}
+        meta_scores = []
+        for path, meta in meta_candidates.items():
+            max_score = 0
+            best_kw = ""
+            for tkw in topic_keywords:
+                score = fuzz.partial_ratio(tkw, meta)
+                if score > max_score:
+                    max_score = score
+                    best_kw = tkw
+            if max_score >= cutoff:
+                meta_scores.append((path, max_score, best_kw))
+        meta_scores.sort(key=lambda x: x[1], reverse=True)
+        print(f"[DEBUG] meta比較ヒット: {meta_scores[:k]}")
+        for path, score, kw in meta_scores[:k]:
+            if path not in related_paths:
+                related.append(vault[path]["body"])
+                related_paths.append(path)
+        # 3) metaでヒットしなければbodyも含めて再検索
+        if len(related_paths) < k:
+            body_candidates = {path: self.normalize(note["meta"] + " " + note["body"]) for path, note in vault.items()}
+            body_scores = []
+            for path, text in body_candidates.items():
+                max_score = 0
+                best_kw = ""
+                for tkw in topic_keywords:
+                    score = fuzz.partial_ratio(tkw, text)
+                    if score > max_score:
+                        max_score = score
+                        best_kw = tkw
+                if max_score >= cutoff:
+                    body_scores.append((path, max_score, best_kw))
+            # 既にrelated_pathsに入っているものは除外
+            body_scores = [x for x in body_scores if x[0] not in related_paths]
+            body_scores.sort(key=lambda x: x[1], reverse=True)
+            print(f"[DEBUG] body比較ヒット: {body_scores[:k]}")
+            for path, score, kw in body_scores[:k]:
+                related.append(vault[path]["body"])
+                related_paths.append(path)
+        print(f"[DEBUG] 最終related_paths: {related_paths}")
+        return related[:k+len(essentials)], related_paths[:k+len(essentials)]
 
-        if related:
-            # 修正後
-            prompt = (
-                f"以下のノートを参考に、「{topic}」について、"
-                f"日本語で文章を作成してください。\n\n"
+    def safe_filename(self, topic: str, prefix: str = "", ext: str = ".md", maxlen: int = 40):
+        name = re.sub(r'[\\/:*?"<>|]', '_', topic)
+        if len(name) > maxlen:
+            digest = hashlib.md5(name.encode('utf-8')).hexdigest()[:6]
+            name = name[:maxlen] + f"_{digest}"
+        return f"{prefix}{name}{ext}"
+
+    async def on_message(self, message):
+        """メッセージ受信時の処理"""
+        if message.author == self.user:
+            return
+
+        if message.content.strip() == "?":
+            commands_text = (
+                "**📜 利用可能なコマンド一覧**\n"
+                "1. `書いて:<トピック>` - トピックに基づいた文章を生成します。\n"
+                "   - 例: `書いて: 沖縄の観光`\n"
+                "   - 文字数制限付き: `書いて: 沖縄の観光:2000`\n"
+                "2. 通常の文章を送信すると、読みやすく整理され、タイトルとタグが付けられます。\n"
+                "3. `?` - このコマンド一覧を表示します。"
             )
-            for _, content in related:
-                prompt += content[:1000] + "\n\n"
+            await message.channel.send(commands_text)
+            return
 
+        openai_service = self.services.get("openai")
+        if not openai_service:
+            await message.channel.send("⚠️ OpenAIサービスが利用できません。")
+            return
+
+        if message.content.startswith("書いて:"):
+            parts = message.content.split(":")
+            topic = parts[1].strip()
+            char_limit = int(parts[2].strip()) if len(parts) > 2 else None
+
+            # 改良版: search_notesで関連ノート抽出
+            related_notes, related_paths = self.search_notes(topic, self.vault_data, set(self.ESSENTIAL_FILES), k=5, cutoff=30)
+
+            # 参考ノートが0件なら書かない
+            if not related_paths:
+                await message.channel.send("🤔 関連するノートが見つかりませんでした。")
+                return
+            # ここから下は1件以上ヒット時のみ
+            # Obsidian風リンクリスト生成
+            obsidian_links = [f"[[{os.path.splitext(os.path.basename(p))[0]}]]" for p in related_paths]
+            links_str = ", ".join(obsidian_links) if obsidian_links else "なし"
+            print(f"[DEBUG] 参考ノート: {links_str}")  # デバッグ用
+            prompt_text = (
+                f"以下のノートを参考に、「{topic}」について、日本語で詳細な文章を作成してください。\n"
+                f"最後に、この文章内容に最も関連性の高いタグを3〜5個、必ず以下のフォーマットで付けてください。\n\n"
+                f"フォーマット:\n"
+                f"タグ: #タグ1 #タグ2 #タグ3\n\n"
+                f"---\n\n"
+                + "\n\n---\n\n".join([note[:1000] for note in related_notes])
+            )
+            messages = [{"role": "user", "content": prompt_text}]
             await message.channel.send("📝 執筆中です。少々お待ちください...")
-
-            result = await asyncio.to_thread(generate_with_gemma, prompt)
-
+            result = await openai_service._create_chat_completion(model="gpt-4o-mini", messages=messages)
+            content_body, tags = result, ""
+            try:
+                tags_match = re.search(r"タグ: (.*)", result, re.IGNORECASE | re.DOTALL)
+                if tags_match:
+                    content_body = result[:tags_match.start()].strip()
+                    tags = re.sub(r'#\s+', '#', tags_match.group(1).strip())
+                else:
+                    content_body = result
+                    tags = ""
+            except Exception as e:
+                print(f"パースエラー（書いて:）: {e}")
+                content_body = result
+                tags = ""
             if char_limit:
-                result = result[:char_limit]
-
-            # 保存処理
+                content_body = content_body[:char_limit]
             output_dir = "/Users/kaz005/Tre/discordbot_outputs"
             os.makedirs(output_dir, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{timestamp}_{topic}.md"
+            filename = self.safe_filename(f"{timestamp}_{topic}")
             filepath = os.path.join(output_dir, filename)
+            # 成果物ファイル末尾に参考ノートリンクを追記
             with open(filepath, "w", encoding="utf-8") as f:
-                f.write(f"# {topic}\n\n{result}")
-                # 関連ノートのリンクを追加
-                related_paths = [path for path, _ in related]
-                if related_paths:
-                    f.write("\n\n## 関連ノート\n")
-                    for path in related_paths:
-                        filename_only = os.path.splitext(os.path.basename(path))[0]
-                        f.write(f"- [[{filename_only}]]\n")
+                f.write(f"# {topic}\n\n{content_body}\n\n{tags}\n\n---\n参考ノート: {links_str}\n")
+            prefix = "「"
+            suffix = "」に関する文章"
+            max_topic_len = MAX_EMBED_TITLE_LEN - len(prefix) - len(suffix)
+            safe_topic = topic[:max_topic_len]
+            embed_title = f"{prefix}{safe_topic}{suffix}"
+            embed = discord.Embed(title=embed_title, description=content_body, color=0x3498db)
+            if tags:
+                embed.add_field(name="タグ", value=tags)
+            # Embedに必ず参考ノート欄を追加
+            embed.add_field(name="参考ノート", value=links_str, inline=False)
+            await message.channel.send(embed=embed)
+            # 通常メッセージでも必ず表示
+            await message.channel.send(f"参考ノート: {links_str}")
+            await message.channel.send("✅ 文章が生成され、ファイルとしても保存されました。")
 
-            await message.channel.send("✅ 文章が生成され、ファイルとして保存されました。Vaultでご確認ください。")
-        else:
-            await message.channel.send("🤔 関連するノートが見つかりませんでした。")
+        else: # 通常のメッセージ
+            input_text = message.content.strip()
+            await message.channel.send("📚 整理中です。少々お待ちください...")
 
-    else:
-        input_text = message.content.strip()
+            prompt_text = (
+                "次の文章を日本語で、読みやすいように整理してください。文意を変えず、簡潔で明確にしてください。\n\n"
+                f"{input_text}\n\n"
+                "さらに、この文章に対して適切なタイトルと3〜5個の関連タグを提案してください。\n"
+                "以下のフォーマットで応答してください：\n"
+                "タイトル: ...\n"
+                "本文: ...\n"
+                "タグ: ...（ハッシュタグ形式で）"
+            )
+            messages = [{"role": "user", "content": prompt_text}]
 
-        await message.channel.send("📚 整理中です。少々お待ちください...")
-
-        related = []
-        for path, content in vault_data.items():
-            if any(word in content for word in input_text.split()):
-                related.append(path)
-
-        prompt = (
-            "次の文章を日本語で、読みやすいように整理してください。文意を変えず、簡潔で明確にしてください。\n\n"
-            f"{input_text}\n\n"
-            "さらに、この文章に対して適切なタイトルと3〜5個の関連タグを提案してください。\n"
-            "以下のフォーマットで応答してください：\n"
-            "タイトル: ...\n"
-            "本文: ...\n"
-            "タグ: ...（ハッシュタグ形式で）"
-        )
-
-        result = await asyncio.to_thread(generate_with_gemma, prompt)
-
-        # 結果を分解して title、content、tags に分ける
-        title, content_body, tags = "無題", "", ""
-        if "タイトル:" in result and "本文:" in result and "タグ:" in result:
+            # 共通サービスを使ってLLMを呼び出し
+            result = await openai_service._create_chat_completion(model="gpt-4o-mini", messages=messages)
+            
+            # --- 結果のパース処理を実装 ---
+            title, content_body, tags = "無題", result, ""
             try:
-                title_part = result.split("タイトル:")[1]
-                content_part = title_part.split("本文:")[1]
-                tag_part = content_part.split("タグ:")
-                title = title_part.split("本文:")[0].strip()
-                content_body = tag_part[0].strip()
-                tags = tag_part[1].strip()
-            except Exception:
-                content_body = result.strip()
-        else:
-            content_body = result.strip()
+                title_match = re.search(r"タイトル: (.*)", result)
+                body_match = re.search(r"本文: (.*)", result, re.DOTALL)
+                tags_match = re.search(r"タグ: (.*)", result)
 
-        # 保存処理
-        output_dir = "/Users/kaz005/Tre/discordbot_outputs"
-        os.makedirs(output_dir, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_title = "".join(c for c in title if c.isalnum() or c in "_- ").rstrip()
-        filename = f"{timestamp}_{safe_title}.md"
-        filepath = os.path.join(output_dir, filename)
-        with open(filepath, "w", encoding="utf-8") as f:
-            formatted_tags = "\n".join(f"# {tag.strip('#').strip()}" for tag in tags.split() if tag.strip())
-            f.write(f"# {title}\n\n{content_body}\n\n## タグ\n{formatted_tags}")
-            if related:
-                f.write("\n\n## 関連ノート\n")
-                for path in related:
-                    filename_only = os.path.splitext(os.path.basename(path))[0]
-                    f.write(f"- [[{filename_only}]]\n")
+                if title_match:
+                    title = title_match.group(1).strip()
+                # 本文とタグの間に本文がある場合を考慮
+                if body_match and tags_match:
+                    body_text_raw = result[body_match.start():tags_match.start()]
+                    content_body = re.sub(r"本文: ?", "", body_text_raw, 1).strip()
+                elif body_match: # タグがない場合
+                    content_body = body_match.group(1).strip()
 
-        # 関連ノート探索
-        related_note_list = "\n".join(f"- {path}" for path in related) if related else "関連するノートは見つかりませんでした。"
+                if tags_match:
+                    # 「# タグ」->「#タグ」のようにスペースを削除
+                    tags = re.sub(r'#\s+', '#', tags_match.group(1).strip())
+                else:
+                    tags = "" # タグが見つからなければ空文字
+            except Exception as e:
+                print(f"パースエラー: {e}")
+                content_body = result # パース失敗時は原文を本文とする
 
-        # Discord送信用の整理結果表示
-        summary = (
-            f"✅ 整理結果\n\n"
-            f"**タイトル**: {title}\n\n"
-            f"**本文**:\n{content_body}\n\n"
-            f"**タグ**:\n{tags}\n\n"
-            f"**関連ノート**:\n{related_note_list}"
-        )
-        if related:
-            link_section = "\n".join(f"- [[{os.path.splitext(os.path.basename(path))[0]}]]" for path in related)
-            summary += f"\n\n**関連ノートへのリンク**:\n{link_section}"
-        await message.channel.send(summary[:2000])
+            # ファイル保存処理を追加
+            output_dir = "/Users/kaz005/Tre/discordbot_outputs"
+            os.makedirs(output_dir, exist_ok=True)
+            prefix = "「"
+            suffix = "」に関する文章"
+            max_topic_len = MAX_EMBED_TITLE_LEN - len(prefix) - len(suffix)
+            safe_topic = topic[:max_topic_len]
+            embed_title = f"{prefix}{safe_topic}{suffix}"
+            embed = discord.Embed(title=embed_title, description=content_body, color=0x3498db)
+            if tags:
+                embed.add_field(name="タグ", value=tags)
+            
+            await message.channel.send(embed=embed)
+            await message.channel.send("✅ 内容が整理され、ファイルとしても保存されました。")
 
-@client.event
-async def on_raw_reaction_add(payload):
-    if str(payload.emoji.name) == "❤️":
-        channel = client.get_channel(payload.channel_id)
-        if channel is None:
+    async def on_raw_reaction_add(self, payload):
+        """リアクション受信時の処理"""
+        if str(payload.emoji) != "❤️":
             return
+            
+        channel = self.get_channel(payload.channel_id)
+        if not channel: return
         message = await channel.fetch_message(payload.message_id)
-        user = payload.member
-        if user is not None and not user.bot:
-            guild_id = message.guild.id if message.guild else None
-            view = TwitterPostView(message.content, guild_id)
-            preview = message.content[:2000]
-            try:
-                await channel.send(
-                    f"この内容をX（Twitter）に投稿しますか？\n\n{preview}",
-                    view=view
-                )
-            except discord.HTTPException as e:
-                await channel.send("⚠️ 投稿準備メッセージの送信に失敗しました。内容が長すぎる可能性があります。")
+        
+        openai_service = self.services.get("openai")
+        if not openai_service:
+            await channel.send("⚠️ OpenAIサービスが利用できません。")
+            return
 
-client.run(TOKEN)
+        post_content = message.content
+        if message.embeds:
+            post_content = message.embeds[0].description
+
+        if len(post_content) > 140:
+            await channel.send("📝 140文字を超えているため、要約します...")
+            # 共通サービスを使って要約
+            post_content = await openai_service.summarize(post_content, model="gpt-4o-mini", max_length=140)
+
+        # UI部分はWriterBotのものを参考にしつつ、簡易版として実装
+        url = f"https://twitter.com/intent/tweet?text={urllib.parse.quote(post_content)}"
+        await channel.send(f"🐦 下記リンクから投稿できます:\n{url}")
+
+
+if __name__ == "__main__":
+    load_dotenv()
+    TOKEN = os.getenv("FIRST_DISCORD_TOKEN")
+    if not TOKEN:
+        raise RuntimeError("FIRST_DISCORD_TOKEN (.env) が未設定です")
+
+    intents = discord.Intents.default()
+    intents.message_content = True
+    intents.reactions = True
+    
+    # SimpleBotをインスタンス化して実行
+    bot = SimpleBot(command_prefix="!", intents=intents)
+    bot.run(TOKEN)

@@ -101,9 +101,9 @@ class WriterBot(BaseBot):
 if __name__ == "__main__":
     import os
     load_dotenv()
-    TOKEN = os.getenv("DISCORD_TOKEN")
+    TOKEN = os.getenv("SECOND_DISCORD_TOKEN")
     if not TOKEN:
-        raise RuntimeError("DISCORD_TOKEN (.env) が未設定です")
+        raise RuntimeError("SECOND_DISCORD_TOKEN (.env) が未設定です")
     intents = discord.Intents.default()
     intents.message_content = True
     intents.reactions = True
