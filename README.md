@@ -1,110 +1,156 @@
-# Discord Bot Project
+# TDD Discord Bot
 
-このリポジトリは、多機能なDiscord Botを開発するためのプロジェクトです。
+ファイル（テキスト・PDF・音声・動画）から自動でMarkdown記事を生成するDiscord Botです。OpenAI GPT-4o-miniとWhisperを活用し、PREP法・PAS法による構造化された記事作成をサポートします。
 
-## 概要
+## 🚀 主な機能
 
-このBotは、文章生成、SNS投稿支援、文字起こしなど、複数の機能を提供することを目的としています。
-機能はサービスとしてモジュール化されており、拡張性の高い設計を目指しています。
+### スラッシュコマンド
+- **`/article`** - ファイルからMarkdown記事を生成
+  - `style`: prep（PREP法）/ pas（PAS法）
+  - `include_tldr`: 要約の有無
+- **`/tldr`** - ファイルから要約（TLDR）を生成
+- **`/insert`** - 次のメッセージをMarkdown形式に整形
+- **`/help`** - 使い方ガイド
+- **`/usage`** - 今日の使用回数確認
 
-## ディレクトリ構成
+### リアクション機能
+- **🎤** - 音声・動画ファイルの自動文字起こし
+- **❤️** - ツイートプレビュー生成
 
-```
-discord-bot-dev/
-├── _docs/               # ドキュメント
-├── bots/                # Bot本体のコード
-│   └── writer_bot.py
-├── common/              # 共通モジュール
-│   ├── services/        # 外部サービス連携
-│   ├── base_bot.py      # Botの基底クラス
-│   └── ...
-├── .env                 # 環境変数ファイル（各自で作成）
-└── README.md
-```
+### メール連携
+- **`/register_email`** - メールアドレス登録
+- **`/confirm_email`** - メール認証
+- **`/resend_result`** - 直近の結果をメール送信
 
-## セットアップ方法
+## 📁 対応ファイル形式
 
-### 1. 必要なライブラリのインストール
+| 形式 | 拡張子 | 処理方法 |
+|------|---------|----------|
+| テキスト | `.txt`, `.md` | 直接読み込み |
+| PDF | `.pdf` | pdfminer.six |
+| 音声 | `.mp3`, `.wav`, `.m4a`, `.ogg` | Whisper API |
+| 動画 | `.mp4`, `.webm` | FFmpeg + Whisper |
 
-`bots/writer_bot.py` や `common/` 以下のファイルで `import` されているライブラリをインストールしてください。
+## 🛠️ セットアップ
 
-例:
+### 必要な依存関係
+
+#### Pythonパッケージ
 ```bash
-pip install discord.py python-dotenv tweepy openai
-```
-(プロジェクトに必要なライブラリは、後ほど `requirements.txt` にまとめることを推奨します。)
-
-### 2. 環境変数の設定
-
-プロジェクトのルートディレクトリに`.env`ファイルを作成し、Botの運用に必要な情報を記述してください。
-
-```
-# Discord Botのトークン
-DISCORD_TOKEN="YOUR_DISCORD_BOT_TOKEN"
-
-# OpenAI APIキー
-OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
-
-# Twitter(X) API v2の各種キー
-TW_API_KEY="YOUR_TWITTER_API_KEY"
-TW_API_SECRET="YOUR_TWITTER_API_SECRET"
-TW_ACCESS_TOKEN="YOUR_TWITTER_ACCESS_TOKEN"
-TW_ACCESS_SECRET="YOUR_TWITTER_ACCESS_SECRET"
+pip install discord.py redis openai python-dotenv pdfminer.six PyYAML
 ```
 
-## 起動方法
+#### システム要件
+- **FFmpeg** - 動画処理用
+- **Redis Server** - レート制限管理用
 
-以下のコマンドをプロジェクトのルートディレクトリで実行してください。
+### 環境変数設定
+
+`.env`ファイルを作成し、以下を設定：
+
+```env
+# 必須
+DISCORD_TOKEN=your_discord_bot_token
+OPENAI_API_KEY=your_openai_api_key
+
+# Redis設定（オプション）
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
+
+# レート制限設定
+DAILY_RATE_LIMIT=5
+PREMIUM_ROLE_NAME=premium
+
+# メール機能（オプション）
+EMAIL_RECIPIENT=your_email@example.com
+EMAIL_SENDER=bot@example.com
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=your_smtp_user
+SMTP_PASS=your_smtp_password
+
+# ログ設定
+MODERATOR_CHANNEL_ID=your_moderator_channel_id
+```
+
+### Discord Bot設定
+
+1. [Discord Developer Portal](https://discord.com/developers/applications) でアプリケーション作成
+2. Bot作成してトークンを取得
+3. 必要な権限：
+   - `Send Messages`
+   - `Use Slash Commands`
+   - `Add Reactions`
+   - `Attach Files`
+
+## 🚀 起動方法
 
 ```bash
-python -m bots.writer_bot
+python tdd_bot.py
 ```
 
-**【重要】**
-`-m`オプションを付けてモジュールとして実行することで、`common`ディレクトリなどの他モジュールを正しく読み込むことができます。`python bots/writer_bot.py` のように直接ファイルを指定して実行すると、`ModuleNotFoundError` が発生しますのでご注意ください。
+### 起動時チェック項目
+- Discord Token
+- OpenAI API Key
+- Redis接続
+- FFmpeg インストール
 
-## 主な機能 (`WriterBot`)
+## 📊 利用制限
 
--   `/write <テキスト>`: トピックに基づいた文章を生成します。
--   `/tweet <テキスト>`: X (旧Twitter) に投稿します。
--   `/transcribe`: 添付された音声ファイルを文字起こしします。
--   `/clean <テキスト>`: テキストをMarkdown形式に整形します。
--   `/invite`: Botの招待リンクを生成します。
--   `/upgrade`: 料金プランの案内を表示します。
--   `/set_paid`, `/set_free`, `/my_plan`: ユーザーのプランを管理します。
--   ❤️リアクション: メッセージに❤️リアクションを付けると、その内容をX (旧Twitter) に投稿するための確認UIを表示します。
+### 無料ユーザー
+- **日次制限**: 5回
+- **ファイルサイズ**: 10MB（音声・動画は20MB）
 
-## 別途実装 (`simple_bot.py`)
+### Premiumユーザー
+- **日次制限**: 無制限
+- **ファイルサイズ**: 50MB
 
-こちらは `WriterBot` とは独立した、よりシンプルなBotの実装例です。
+## 🔧 技術仕様
 
-### 起動方法
+### アーキテクチャ
+- **単一ファイル設計** - `tdd_bot.py`にすべての機能を統合
+- **非同期処理** - asyncio使用でノンブロッキングI/O
+- **TDD実装** - テスト駆動開発によるコード実装
 
-```bash
-python simple_bot.py
+### セキュリティ
+- MIMEタイプ検証
+- 実行ファイル拒否
+- ファイルサイズ制限
+- レート制限（Redis）
+
+### AI生成機能
+- **記事生成**: PREP法・PAS法による構造化
+- **要約生成**: 3-5箇条書きでの要約
+- **文字起こし**: Whisper APIによる高精度変換
+
+## 📝 使用例
+
+### 1. PDFから記事生成
 ```
-※ `simple_bot.py` はルートディレクトリに配置されているため、`-m` オプションは不要です。
+/article style:prep include_tldr:true
+```
+PDFファイルを添付して実行
 
-### 主な機能
+### 2. 音声ファイルの文字起こし
+音声ファイルに🎤リアクションを追加
 
--   `書いて:<トピック>`: 指定されたトピックについて、ローカルのドキュメント（Vault）を参考に文章を生成し、結果をファイルに保存します。
--   通常のメッセージ送信: 送信された文章をLLMが整形・要約し、タイトルとタグを付けて返信します。
--   `?`: コマンド一覧を表示します。
--   ❤️リアクション: メッセージに❤️リアクションを付けると、X(Twitter)への投稿UIが表示されます。（こちらは `WriterBot` と同様の機能です）
+### 3. テキスト整形
+```
+/insert
+```
+実行後、次のメッセージが自動でMarkdown整形される
 
-## 🆕 2024-07 検索ロジック大幅改善
+## 🤝 サポート
 
-### 改善ポイント
-- **日本語Vaultでの短文・固有名詞トピック（例：「沖縄県」）でも高精度にヒット**
-- ノートごとに `meta`（ファイル名・aliases・tags）を優先的に部分一致検索
-- トピックから命令語除去＋2文字以上の単語抽出でキーワードリスト化
-- metaでヒットしない場合のみbody（本文）も含めて再検索
-- RapidFuzzの`partial_ratio`で短文一致・部分一致に強いスコアリング
-- どのキーワードで何点だったかをデバッグ出力し、ヒット理由を可視化
+- **問題報告**: [Issues](https://github.com/kazunori-Ohashi/sewasees-bot/issues)
+- **バージョン**: v2.0.0
+- **作成者**: 大橋和則
 
-### 効果
-- Vault内に「沖縄県」などのノートが存在すれば、bodyが長くてもmeta優先で確実にヒット
-- 表記ゆれ・エイリアス・タグも検索対象となり、ヒット率が大幅向上
-- 参考ノートが0件なら「なし」と明示、1件以上ならObsidianリンク形式で表示
+## 📄 ライセンス
 
---- 
+このプロジェクトはMITライセンスの下で公開されています。
+
+---
+
+**注意**: `.env`ファイルはGitHubにコミットされません。本番環境では適切な環境変数管理を行ってください。
