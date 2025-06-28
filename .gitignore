@@ -4,4 +4,4 @@ __pycache__/
 .DS_Store
 .cursor/
 _docs/
-.env 
+.env .env
