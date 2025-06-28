@@ -4,6 +4,7 @@ TDD Discord Bot - ファイル/音声/動画→Markdown ジェネレータ
 仕様書とテストケースに基づいて実装されたDiscord Bot
 """
 
+# --- Additional Imports for Persistent Caching and File Watching ---
 import discord
 from discord.ext import commands
 import asyncio
@@ -25,6 +26,48 @@ import uuid
 from pathlib import Path
 import yaml
 import fcntl
+# Persistent cache and file watching support
+import threading
+from pathlib import Path
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+# --- Persistent JSON-backed dict for cache ---
+class SyncDictJSON(dict):
+    _locks = {}
+    _instances = {}
+    @classmethod
+    def create(cls, path):
+        lock = cls._locks.setdefault(path, threading.Lock())
+        if path not in cls._instances:
+            cls._instances[path] = cls(path, lock)
+        return cls._instances[path]
+
+    def __init__(self, path, lock):
+        super().__init__()
+        self.path = path
+        self.lock = lock
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        if Path(path).exists():
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            super().update(data)
+
+    def __setitem__(self, key, value):
+        with self.lock:
+            super().__setitem__(key, value)
+            self._flush()
+
+    def __delitem__(self, key):
+        with self.lock:
+            super().__delitem__(key)
+            self._flush()
+
+    def _flush(self):
+        tmp = f"{self.path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self, f, ensure_ascii=False, indent=2)
+            f.flush(); os.fsync(f.fileno())
+        os.replace(tmp, self.path)
 # --- メール送信ヘルパー ---
 async def send_email(recipient: str, subject: str, body: str, attachments: list[tuple[str, bytes, str]] = None):
     """
@@ -170,49 +213,45 @@ class UnsupportedFileType(Exception):
     """サポートされていないファイル形式例外"""
     pass
 
+# --- Persistent caches replacing Redis when unavailable ---
+RATE_LIMIT_CACHE = SyncDictJSON.create("cache/rate_limit.json")
+INSERT_MODE_CACHE = SyncDictJSON.create("cache/insert_mode.json")
+
 # --- リミット管理モジュール ---
 def limit_user(user_id: str, redis_client=None) -> bool:
     """
     ユーザーの日次使用回数制限をチェック・更新
-    
-    Args:
-        user_id: DiscordユーザーID
-        redis_client: Redisクライアント (テスト用)
-    
-    Returns:
-        bool: 制限内であればTrue
-        
-    Raises:
-        UsageLimitExceeded: 制限超過時
     """
-    if redis_client is None:
-        redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
-    
+    use_cache = redis_client is None
+    if use_cache:
+        cache = RATE_LIMIT_CACHE
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     key = f"limit:{user_id}:{today}"
-    
-    try:
-        current_count = redis_client.get(key)
-        if current_count is None:
-            current_count = 0
-        else:
-            current_count = int(current_count)
-        
-        daily_limit = int(os.getenv('DAILY_RATE_LIMIT', '5'))
-        if current_count >= daily_limit:
+    daily_limit = int(os.getenv('DAILY_RATE_LIMIT', '5'))
+    if use_cache:
+        count = cache.get(key, 0)
+        if count is None:
+            count = 0
+        if count >= daily_limit:
             raise UsageLimitExceeded(f"1日の使用回数制限（{daily_limit}回）を超過しています")
-        
-        # カウンタをインクリメント
-        redis_client.incr(key)
-        # 24時間後に期限切れ
-        redis_client.expire(key, 86400)
-        
+        cache[key] = count + 1
         return True
-        
-    except redis.RedisError as e:
-        logger.error(f"Redis error: {e}")
-        # Redis接続エラーの場合は制限なしで通す（サービス継続のため）
-        return True
+    else:
+        try:
+            current_count = redis_client.get(key)
+            if current_count is None:
+                current_count = 0
+            else:
+                current_count = int(current_count)
+            if current_count >= daily_limit:
+                raise UsageLimitExceeded(f"1日の使用回数制限（{daily_limit}回）を超過しています")
+            redis_client.incr(key)
+            redis_client.expire(key, 86400)
+            return True
+        except redis.RedisError as e:
+            logger.error(f"Redis error: {e}")
+            # Redis接続エラーの場合は制限なしで通す（サービス継続のため）
+            return True
 
 # --- プロンプト生成モジュール ---
 def build_prompt(content: str, style: str = "prep") -> str:
@@ -356,18 +395,13 @@ class TDDCog(commands.Cog):
     async def insert_command(self, interaction: discord.Interaction):
         from datetime import datetime
         user_id = str(interaction.user.id)
-        
-        # Redisに状態を保存（複数インスタンス対応）
         if self.bot.redis_client:
             key = f"insert_mode:{user_id}"
             data = {"style": "md", "timestamp": datetime.now().isoformat()}
             self.bot.redis_client.hset(key, mapping=data)
             self.bot.redis_client.expire(key, 300)  # 5分で期限切れ
         else:
-            # Redisが利用できない場合はローカル辞書を使用
-            self.bot.insert_mode_users[user_id] = {"style": "md", "timestamp": datetime.now()}
-        
-        # コマンドを受理し、次のメッセージ入力を促す
+            INSERT_MODE_CACHE[f"insert_mode:{user_id}"] = {"style": "md", "timestamp": datetime.now().isoformat()}
         await interaction.response.send_message("📝 次の発言をマークダウン整形します。続けてメッセージを送信してください。",ephemeral=True)
     @discord.app_commands.command(name="help", description="このBotの使い方一覧を表示")
     async def help_command(self, interaction: discord.Interaction):
@@ -391,7 +425,7 @@ class TDDCog(commands.Cog):
         )
         embed.add_field(
             name="/insert",
-            value="✍️ /insertエンターキーで待ち受けモードに入ります。 次の入力発言をMarkdown整形します（テキスト発言のみ対応）",
+            value="✍️ /insertエンターキーで待ち受けモードに入ります。 次の入力発言をMarkdown整形します（テキスト入力のみ対応）このコマンドは音声入力によるテキストの整形を前提としています",
             inline=False
         )
         embed.add_field(
@@ -892,15 +926,12 @@ class TDDBot(commands.Bot):
             logger.warning("Redis not available, rate limiting disabled")
             self.redis_client = None
         # insertモード管理用 (Redisベース)
-        self.insert_mode_users = {}
     async def on_message(self, message):
         # 通常のBot/ユーザーのメッセージは無視
         if message.author == self.user or message.author.bot:
             return
 
         user_id = str(message.author.id)
-        
-        # Redisから状態を確認（複数インスタンス対応）
         insert_mode_entry = None
         if self.redis_client:
             key = f"insert_mode:{user_id}"
@@ -909,13 +940,16 @@ class TDDBot(commands.Bot):
                 insert_mode_entry = {"style": data.get("style", "md"), "timestamp": data.get("timestamp")}
                 self.redis_client.delete(key)  # 処理後に削除
         else:
-            # Redisが利用できない場合はローカル辞書を確認
-            if user_id in self.insert_mode_users:
-                insert_mode_entry = self.insert_mode_users.pop(user_id)
-        
+            key = f"insert_mode:{user_id}"
+            entry = INSERT_MODE_CACHE.get(key)
+            if entry:
+                insert_mode_entry = entry
+                try:
+                    del INSERT_MODE_CACHE[key]
+                except Exception:
+                    pass
         if insert_mode_entry:
             style = insert_mode_entry.get("style", "md")
-
             prompt = build_prompt(message.content, style)
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -927,18 +961,14 @@ class TDDBot(commands.Bot):
                 temperature=0.5,
                 timeout=30  # 30秒タイムアウト
             )
-
             markdown = response.choices[0].message.content
-
             sent_msg = await message.channel.send(f"📄 整形済みMarkdown:\n```markdown\n{markdown}\n```")
-            
             # --- Send formatted markdown via email ---
             recipient = os.getenv("EMAIL_RECIPIENT")
             if recipient:
                 subject_email = "[TDD Bot] Insert Result"
                 body_email = markdown.replace("\n", "<br>")
                 await send_email(recipient, subject_email, body_email)
-                
                 # Redis履歴保存
                 if self.redis_client:
                     user_id = str(message.author.id)
@@ -950,21 +980,28 @@ class TDDBot(commands.Bot):
                     }
                     self.redis_client.hset(key, mapping=email_data)
                     self.redis_client.expire(key, 86400)  # 24時間
-                
                 await message.channel.send("📧 整形結果をメールで送信しました", delete_after=30)
             else:
                 logger.warning("EMAIL_RECIPIENT is not set; skipping email for insert result")
-            # --- END PATCH ---
         # Prefixed commands should still work when on_message is overridden
         await self.process_commands(message)
     
     async def on_ready(self):
         """Bot 起動時処理（接続確認＋モデレーターログのみ）"""
         logger.info(f'{self.user} has connected to Discord!')
-        
+
+        # Start file watchers for cache sync
+        handler = type("CacheReloadHandler", (FileSystemEventHandler,), {
+            "on_modified": lambda self, e: INSERT_MODE_CACHE.clear() or INSERT_MODE_CACHE.update(json.loads(Path(INSERT_MODE_CACHE.path).read_text())),
+        })()
+        observer = Observer()
+        observer.schedule(handler, path="cache", recursive=False)
+        observer.daemon = True
+        observer.start()
+
         # 古い一時ファイルのクリーンアップ
         cleanup_old_files()
-        
+
         await self.log_to_moderator(
             title="🤖 Bot Started",
             description="Bot has connected successfully.",
