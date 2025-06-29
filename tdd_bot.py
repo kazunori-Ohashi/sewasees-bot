@@ -198,6 +198,8 @@ class UnsupportedFileType(Exception):
 # --- Persistent caches replacing Redis when unavailable ---
 RATE_LIMIT_CACHE = SyncDictJSON.create("cache/rate_limit.json")
 INSERT_MODE_CACHE = SyncDictJSON.create("cache/insert_mode.json")
+# --- Persistent cache for email history (resend_result) ---
+EMAIL_HISTORY_CACHE = SyncDictJSON.create("cache/email_history.json")
 
 # --- リミット管理モジュール ---
 def limit_user(user_id: str, redis_client=None) -> bool:
@@ -230,7 +232,7 @@ def limit_user(user_id: str, redis_client=None) -> bool:
             redis_client.incr(key)
             redis_client.expire(key, 86400)
             return True
-        except redis.RedisError as e:
+        except Exception as e:
             logger.error(f"Redis error: {e}")
             # Redis接続エラーの場合は制限なしで通す（サービス継続のため）
             return True
@@ -548,20 +550,18 @@ class TDDCog(commands.Cog):
                     user_id = str(interaction.user.id)
                     temp_file_path = save_temp_file(final_content.encode("utf-8"), filename, user_id)
                     
-                    # Redis履歴保存
-                    if self.bot.redis_client:
-                        key = f"last_email:{user_id}:{BOT_ID}"
-                        email_data = {
-                            "subject": subject_email,
-                            "body": body_email,
-                            "attachments": json.dumps([{
-                                "filename": filename,
-                                "path": temp_file_path,
-                                "mime_type": "text/markdown"
-                            }])
-                        }
-                        self.bot.redis_client.hset(key, mapping=email_data)
-                        self.bot.redis_client.expire(key, 1209600)  # 14日間
+                    # Email history cache saving
+                    key = f"last_email:{user_id}:{BOT_ID}"
+                    email_data = {
+                        "subject": subject_email,
+                        "body": body_email,
+                        "attachments": json.dumps([{
+                            "filename": filename,
+                            "path": temp_file_path,
+                            "mime_type": "text/markdown"
+                        }])
+                    }
+                    EMAIL_HISTORY_CACHE[key] = email_data
                     
                     await interaction.followup.send("📧 記事をメールで送信しました", ephemeral=True)
                     # --- END PATCH ---
@@ -731,17 +731,15 @@ class TDDCog(commands.Cog):
                 body_email = tldr_summary.replace("\n", "<br>")
                 await send_email(recipient, subject_email, body_email)
                 
-                # Redis履歴保存
-                if self.bot.redis_client:
-                    user_id = str(interaction.user.id)
-                    key = f"last_email:{user_id}:{BOT_ID}"
-                    email_data = {
-                        "subject": subject_email,
-                        "body": body_email,
-                        "attachments": "[]"
-                    }
-                    self.bot.redis_client.hset(key, mapping=email_data)
-                    self.bot.redis_client.expire(key, 86400)  # 24時間
+                # Email history cache saving
+                user_id = str(interaction.user.id)
+                key = f"last_email:{user_id}:{BOT_ID}"
+                email_data = {
+                    "subject": subject_email,
+                    "body": body_email,
+                    "attachments": "[]"
+                }
+                EMAIL_HISTORY_CACHE[key] = email_data
                 
                 await interaction.followup.send("📧 要約をメールで送信しました", ephemeral=True)
                 # --- END PATCH ---
@@ -837,7 +835,7 @@ class TDDCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         user_id = str(interaction.user.id)
         key = f"last_email:{user_id}:{BOT_ID}"
-        data = self.bot.redis_client.hgetall(key) if self.bot.redis_client else {}
+        data = EMAIL_HISTORY_CACHE.get(key, {})
         if not data:
             await interaction.followup.send(
                 "❌ 再送信可能な送信履歴がありません。",
@@ -854,7 +852,7 @@ class TDDCog(commands.Cog):
                 ephemeral=True
             )
             return
-        
+
         # 保存済みファイルから添付ファイルを再構築
         attachments = []
         for attachment_info in attachments_info:
@@ -871,10 +869,10 @@ class TDDCog(commands.Cog):
                         ))
                     except Exception as e:
                         logger.error(f"Failed to read temp file {file_path}: {e}")
-        
+
         # メール送信（添付ファイル付き）
         await send_email(recipient, subject, body, attachments if attachments else None)
-        
+
         attachment_msg = f"（添付ファイル: {len(attachments)}個）" if attachments else "（添付ファイルなし）"
         await interaction.followup.send(
             f"✅ 生成結果を再送信しました。{attachment_msg}",
@@ -941,7 +939,7 @@ class TDDBot(commands.Bot):
             markdown = response.choices[0].message.content
             sent_msg = await message.channel.send(f"📄 整形済みMarkdown:\n```markdown\n{markdown}\n```")
             # --- Send formatted markdown via email ---
-            recipient = os.getenv("EMAIL_RECIPIENT")
+            recipient = load_user_settings(user_id).get("verified", {}).get("email", {}).get(BOT_ID)
             if recipient:
                 subject_email = "[TDD Bot] Insert Result"
                 body_email = markdown.replace("\n", "<br>")
@@ -959,7 +957,8 @@ class TDDBot(commands.Bot):
                     self.redis_client.expire(key, 86400)  # 24時間
                 await message.channel.send("📧 整形結果をメールで送信しました", delete_after=30)
             else:
-                logger.warning("EMAIL_RECIPIENT is not set; skipping email for insert result")
+                # ユーザーがメールを登録していない場合は送信をスキップし、登録を促す
+                await message.channel.send("❌ メール送信先が登録されていません。`/register_email` でメールアドレスを登録してください。", delete_after=30)
         # Prefixed commands should still work when on_message is overridden
         await self.process_commands(message)
     
