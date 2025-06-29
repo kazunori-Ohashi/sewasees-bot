@@ -281,6 +281,70 @@ def set_cached_user_permissions(user_id, permissions):
     }
     debug_log_to_file(f"CACHE_SET: User permissions for {user_id}")
 
+# --- プロンプト管理システム ---
+PROMPTS_CONFIG = None
+
+def load_prompts_config():
+    """
+    prompts.yaml ファイルからプロンプト設定を読み込み
+    """
+    global PROMPTS_CONFIG
+    if PROMPTS_CONFIG is None:
+        try:
+            prompts_path = Path("prompts.yaml")
+            if prompts_path.exists():
+                with open(prompts_path, 'r', encoding='utf-8') as f:
+                    PROMPTS_CONFIG = yaml.safe_load(f)
+                debug_log_to_file(f"PROMPTS: Loaded configuration from {prompts_path}")
+            else:
+                debug_log_to_file(f"PROMPTS: Configuration file {prompts_path} not found, using defaults")
+                PROMPTS_CONFIG = {}
+        except Exception as e:
+            debug_log_to_file(f"PROMPTS: Failed to load configuration: {e}")
+            PROMPTS_CONFIG = {}
+    return PROMPTS_CONFIG
+
+def get_prompt(category, key, **kwargs):
+    """
+    カテゴリーとキーでプロンプトを取得し、パラメータを置換
+    
+    Args:
+        category: プロンプトカテゴリー
+        key: プロンプトキー
+        **kwargs: プロンプト内のパラメータ置換用
+    
+    Returns:
+        str: フォーマットされたプロンプト文字列
+    """
+    config = load_prompts_config()
+    try:
+        prompt_data = config.get(category, {}).get(key, {})
+        if isinstance(prompt_data, dict):
+            prompt_text = prompt_data.get('content', '')
+        else:
+            prompt_text = str(prompt_data)
+        
+        # パラメータ置換
+        if kwargs:
+            prompt_text = prompt_text.format(**kwargs)
+        
+        debug_log_to_file(f"PROMPTS: Retrieved {category}.{key}, length: {len(prompt_text)}")
+        return prompt_text
+    except Exception as e:
+        debug_log_to_file(f"PROMPTS: Failed to get {category}.{key}: {e}")
+        return ""
+
+def get_discord_message(category, key, default=""):
+    """
+    Discord メッセージを取得
+    """
+    config = load_prompts_config()
+    try:
+        return config.get('discord_messages', {}).get(category, {}).get(key, default)
+    except Exception as e:
+        debug_log_to_file(f"PROMPTS: Failed to get discord message {category}.{key}: {e}")
+        return default
+
 # --- 例外クラス ---
 class UsageLimitExceeded(Exception):
     """使用回数制限超過例外"""
@@ -346,48 +410,43 @@ def build_prompt(content: str, style: str = "prep") -> str:
     Returns:
         str: 生成されたプロンプト
     """
+    # 外部YAMLからプロンプトテンプレートを取得
     if style == "prep":
-        template = """以下のコンテンツを基に、PREP法（Point, Reason, Example, Point）に従って、
-構造化されたMarkdown記事を作成してください。
-
-コンテンツ:
-{content}
-
-出力形式:
-# {{{{POINT}}}}
-**要点を明確に述べてください**
-
-## {{{{REASON}}}}
-理由や根拠を詳しく説明してください
-
-## {{{{EXAMPLE}}}}
-具体例や事例を示してください
-
-## {{{{POINT}}}} (まとめ)
-要点を再度強調して結論を述べてください
-"""
+        template = get_prompt('article_generation', 'prep_template', content=content)
     else:  # pas style
-        template = """以下のコンテンツを基に、PAS法（Problem, Agitation, Solution）に従って、
-説得力のあるMarkdown記事を作成してください。
+        template = get_prompt('article_generation', 'pas_template', content=content)
+    
+    # フォールバック: YAMLが空の場合はデフォルトテンプレートを使用
+    if not template:
+        debug_log_to_file(f"PROMPTS: Using fallback template for style '{style}'")
+        if style == "prep":
+            template = """以下のコンテンツを基に、PREP法に従って記事を作成してください。
 
 コンテンツ:
 {content}
 
 出力形式:
 # {{{{POINT}}}}
-問題を明確に提示してください
-
 ## {{{{REASON}}}}
-問題の深刻さや影響を説明してください
-
 ## {{{{EXAMPLE}}}}
-解決策や提案を具体的に示してください
-
 ## {{{{POINT}}}} (まとめ)
-解決策の価値を再強調してください
 """
+        else:
+            template = """以下のコンテンツを基に、PAS法に従って記事を作成してください。
+
+コンテンツ:
+{content}
+
+出力形式:
+# {{{{POINT}}}}
+## {{{{REASON}}}}
+## {{{{EXAMPLE}}}}
+## {{{{POINT}}}} (まとめ)
+"""
+        template = template.format(content=content)
     
-    return template.format(content=content)
+    debug_log_to_file(f"PROMPTS: Built prompt for style '{style}', length: {len(template)}")
+    return template
 
 # --- Rate Limiting バックオフハンドラー ---
 async def safe_discord_api_call(api_call_func, max_retries=3, base_delay=1.0, user_id=None):
@@ -633,7 +692,7 @@ class TDDCog(commands.Cog):
             
             # Discord標準パターン: followupで完了通知（遅延後）
             try:
-                await interaction.followup.send("📝 次の発言をマークダウン整形します", ephemeral=True)
+                await interaction.followup.send(get_discord_message('processing_messages', 'insert_notification'), ephemeral=True)
                 debug_log_to_file(f"INSERT_COMMAND: Sent followup notification for user {user_id} after {delay_seconds:.1f}s delay")
             except Exception as e:
                 debug_log_to_file(f"INSERT_COMMAND: Failed to send followup: {e}")
@@ -1498,21 +1557,22 @@ class TDDBot(commands.Bot):
             
             # UX一貫性: articleと同様の処理開始通知（遅延後）
             try:
-                await message.channel.send("📝 マークダウン整形中...", delete_after=30)
+                await message.channel.send(get_discord_message('processing_messages', 'markdown_processing'), delete_after=30)
                 debug_log_to_file(f"ON_MESSAGE: Sent processing notification for user {user_id} after {notify_delay:.1f}s delay")
             except Exception as e:
                 debug_log_to_file(f"ON_MESSAGE: Failed to send processing notification: {e}")
                 # 通知失敗でも処理は継続
             
-            style = insert_mode_entry.get("style", "md")
-            prompt = build_prompt(message.content, style)
+            # 外部YAMLからプロンプトテンプレートを取得
+            system_prompt = get_prompt('markdown_formatting', 'system_prompt')
+            user_prompt = get_prompt('markdown_formatting', 'formatting_template', content=message.content)
             
             try:
                 response = self.openai_client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
-                        {"role": "system", "content": "あなたはMarkdown整形のエキスパートです。"},
-                        {"role": "user", "content": prompt}
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
                     ],
                     max_tokens=1200,
                     temperature=0.5,
@@ -1815,28 +1875,15 @@ class TDDBot(commands.Bot):
         if len(content) > 6000:
             content = content[:6000] + "...[要約のため一部省略]"
         
-        prompt = f"""以下のコンテンツを読みやすい要約（TLDR形式）にしてください。
-
-要求事項：
-- 3〜5つの要点を箇条書きで
-- 各ポイントは絵文字付きで分かりやすく
-- 全体で200文字以内
-- 読者がすぐに理解できる簡潔さ
-
-コンテンツ:
-{content}
-
-出力形式:
-🔹 [要点1]
-🔹 [要点2]
-🔹 [要点3]
-"""
+        # 外部YAMLからプロンプトテンプレートを取得
+        system_prompt = get_prompt('summarization', 'system_prompt')
+        user_prompt = get_prompt('summarization', 'tldr_template', content=content)
 
         response = self.openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "あなたは要約のエキスパートです。長文を短く分かりやすい要点にまとめることに特化しています。"},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
             ],
             max_tokens=300,
             temperature=0.3,  # 要約は一貫性を重視
@@ -1847,13 +1894,15 @@ class TDDBot(commands.Bot):
 
     async def generate_article(self, content: str, style: str = "prep") -> str:
         """OpenAI GPT-4o-miniを使用してMarkdown記事を生成"""
-        prompt = build_prompt(content, style)
+        # 外部YAMLからプロンプトテンプレートを取得
+        system_prompt = get_prompt('article_generation', 'system_prompt')
+        user_prompt = build_prompt(content, style)
 
         response = self.openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "あなたは優秀なライターです。与えられたコンテンツから構造化されたMarkdown記事を作成してください。"},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
             ],
             max_tokens=2000,
             temperature=0.7,
@@ -1921,13 +1970,16 @@ class TDDBot(commands.Bot):
                 if tweet_content:
                     preview = tweet_content.replace('\n', ' ').replace('　', ' ')
                     if len(preview) > 140:
-                        # Use the new prompt allowing emoji for tweet summary
+                        # 外部YAMLからプロンプトテンプレートを取得
                         original_content = tweet_content
+                        system_prompt = get_prompt('tweet_generation', 'system_prompt')
+                        user_prompt = get_prompt('tweet_generation', 'tweet_template', content=original_content)
+                        
                         response = self.openai_client.chat.completions.create(
                             model="gpt-4o-mini",
                             messages=[
-                                {"role": "system", "content": "あなたはプロのSNSライターです。魅力的でインパクトのあるツイートを作成します。"},
-                                {"role": "user", "content": f"以下の内容を140文字以内で魅力的なツイートにしてください。適切な絵文字を使っても構いません。\n\n{original_content}"}
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt}
                             ],
                             max_tokens=160,
                             temperature=0.7

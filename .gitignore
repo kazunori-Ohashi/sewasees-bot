@@ -5,3 +5,4 @@ __pycache__/
 .cursor/
 _docs/
 .env .env
+tdd_bot_test.py

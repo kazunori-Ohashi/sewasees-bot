@@ -1,0 +1,225 @@
+# TDD Discord Bot - プロンプト設定ファイル
+# このファイルを編集してプロンプトのチューニングを行えます
+
+# バージョン管理
+version: "1.0"
+last_updated: "2025-06-29"
+
+# AI記事生成プロンプト
+article_generation:
+  # システムプロンプト（AI の基本動作を定義）
+  system_prompt:
+    content: "あなたは専門的なライターです。与えられたコンテンツから、読みやすく構造化された記事を作成してください。"
+    usage: "generate_article() 関数で使用"
+    trigger: "/article コマンド実行時"
+    parameters: []
+  
+  # PREP法テンプレート
+  prep_template:
+    content: |
+      以下のコンテンツを、PREP法を使用して魅力的なMarkdown記事に変換してください。
+
+      コンテンツ:
+      {content}
+
+      出力形式:
+      # {{{{POINT}}}}
+      問題を明確に提示してください
+
+      ## {{{{REASON}}}}
+      問題の深刻さや影響を説明してください
+
+      ## {{{{EXAMPLE}}}}
+      解決策や提案を具体的に示してください
+
+      ## {{{{POINT}}}} (まとめ)
+      解決策の価値を再強調してください
+    usage: "build_prompt() 関数で style='prep' 時に使用"
+    trigger: "/article コマンドで style パラメータが 'prep' の時"
+    parameters: ["content"]
+    notes: "PREP法: Point(要点) → Reason(理由) → Example(例) → Point(まとめ)"
+
+  # PAS法テンプレート  
+  pas_template:
+    content: |
+      以下のコンテンツを、PAS法を使用して説得力のあるMarkdown記事に変換してください。
+
+      コンテンツ:
+      {content}
+
+      出力形式:
+      # {{{{PROBLEM}}}}
+      問題・課題を明確に提示してください
+
+      ## {{{{AGITATION}}}}
+      問題の深刻さや緊急性を強調してください
+
+      ## {{{{SOLUTION}}}}
+      具体的な解決策を提示してください
+
+      ## 結論
+      解決策の効果と価値をまとめてください
+    usage: "build_prompt() 関数で style='pas' 時に使用"
+    trigger: "/article コマンドで style パラメータが 'pas' の時"
+    parameters: ["content"]
+    notes: "PAS法: Problem(問題) → Agitation(興起) → Solution(解決策)"
+
+# TLDR要約生成プロンプト
+summarization:
+  # システムプロンプト
+  system_prompt:
+    content: "あなたは要約のエキスパートです。長文を短く分かりやすい要点にまとめることに特化しています。"
+    usage: "generate_tldr() 関数で使用"
+    trigger: "/tldr コマンドまたは /article コマンドで include_tldr=True の時"
+    parameters: []
+
+  # TLDR生成テンプレート
+  tldr_template:
+    content: |
+      以下のコンテンツを読みやすい要約（TLDR形式）にしてください。
+
+      要求事項：
+      - 3〜5つの要点を箇条書きで
+      - 各ポイントは絵文字付きで分かりやすく
+      - 全体で200文字以内
+      - 読者がすぐに理解できる簡潔さ
+
+      コンテンツ:
+      {content}
+
+      出力形式:
+      🔹 [要点1]
+      🔹 [要点2]
+      🔹 [要点3]
+    usage: "generate_tldr() 関数のメインプロンプト"
+    trigger: "TLDR生成が要求された時"
+    parameters: ["content"]
+    notes: "3-5個の要点、🔹絵文字、200文字以内制限"
+
+# マークダウン整形プロンプト（Insert機能用）
+markdown_formatting:
+  # システムプロンプト
+  system_prompt:
+    content: "あなたはMarkdown整形のエキスパートです。"
+    usage: "on_message() 関数の Insert モード処理で使用"
+    trigger: "/insert コマンド後のユーザーメッセージ受信時"
+    parameters: []
+
+  # マークダウン整形テンプレート
+  formatting_template:
+    content: |
+      以下のテキストを適切なMarkdown形式に整形してください。見出し、リスト、強調などを適切に使用して読みやすくしてください。
+
+      元のテキスト:
+      {content}
+
+      整形のガイドライン:
+      - 適切な見出しレベル（#, ##, ###）を使用
+      - リストや箇条書きを活用
+      - 重要な部分は**太字**や*斜体*で強調
+      - 必要に応じてコードブロックや引用を使用
+      - 読みやすい構造と適切な改行を心がける
+
+      整形されたMarkdown:
+    usage: "on_message() 関数の OpenAI API 呼び出しで使用"
+    trigger: "Insert モードでユーザーがメッセージを送信した時"
+    parameters: ["content"]
+    notes: "既存テキストを読みやすいMarkdown形式に変換"
+
+# ツイート生成プロンプト（リアクション機能用）
+tweet_generation:
+  # システムプロンプト
+  system_prompt:
+    content: "あなたはプロのSNSライターです。魅力的でインパクトのあるツイートを作成します。"
+    usage: "on_message() 関数の❤️リアクション処理で使用"
+    trigger: "メッセージに❤️リアクションが追加された時"
+    parameters: []
+
+  # ツイート生成テンプレート
+  tweet_template:
+    content: "以下の内容を140文字以内で魅力的なツイートにしてください。適切な絵文字を使っても構いません。\n\n{content}"
+    usage: "on_message() 関数でのツイート変換処理"
+    trigger: "長い内容を140文字以内に要約する必要がある時"
+    parameters: ["content"]
+    notes: "140文字制限、絵文字使用可、魅力的な表現重視"
+
+# Discord 通知メッセージ
+discord_messages:
+  # 処理中メッセージ
+  processing_messages:
+    insert_notification: "📝 次の発言をマークダウン整形します"
+    markdown_processing: "📝 マークダウン整形中..."
+    article_processing: "📝 ファイル処理を開始しています..."
+    ai_processing: "🤖 AIが記事を生成中です..."
+    pdf_processing: "📄 PDFファイルを処理中です..."
+    audio_processing: "🎵 音声・動画ファイルを処理中です（時間がかかる場合があります）..."
+
+  # 完了メッセージ
+  completion_messages:
+    email_sent: "📧 記事をメールで送信しました（添付ファイル付き）"
+    email_sent_insert: "📧 整形結果をメールで送信しました（添付ファイル付き）"
+    
+  # エラーメッセージ
+  error_messages:
+    already_processing: "⚠️ 既に処理中です。完了をお待ちください。"
+    email_failed: "⚠️ メール送信に失敗しましたが、整形は正常に完了しました。"
+    email_not_registered: "❌ メール送信先が登録されていません。`/register_email` でメールアドレスを登録してください。"
+
+# プロンプト設定のメタデータ
+metadata:
+  # OpenAI API 使用箇所
+  api_usage_points:
+    - function: "generate_article()"
+      model: "gpt-4o-mini" 
+      max_tokens: 2000
+      temperature: 0.7
+      timeout: 30
+      
+    - function: "generate_tldr()"
+      model: "gpt-4o-mini"
+      max_tokens: 300
+      temperature: 0.3
+      timeout: 30
+      
+    - function: "on_message() [Insert処理]"
+      model: "gpt-4o-mini"
+      max_tokens: 1200
+      temperature: 0.5
+      timeout: 30
+      
+    - function: "on_message() [ツイート生成]"
+      model: "gpt-4o-mini"
+      max_tokens: 160
+      temperature: 0.7
+      timeout: 30
+
+  # プロンプトチューニングガイド
+  tuning_guidelines:
+    temperature_ranges:
+      creative_writing: "0.7-0.9"
+      technical_summary: "0.3-0.5"
+      formatting: "0.1-0.3"
+    
+    token_allocation:
+      system_prompt: "50-100 tokens"
+      user_prompt: "200-500 tokens"
+      output_space: "500-2000 tokens"
+    
+    style_considerations:
+      prep_method: "論理的構造、明確な要点"
+      pas_method: "感情的訴求、緊急性の演出"
+      tldr: "簡潔性、スキャン可能性"
+      markdown: "可読性、構造化"
+      tweet: "魅力性、インパクト、140文字制限"
+
+# 多言語対応（将来拡張用）
+languages:
+  default: "ja"
+  supported: ["ja", "en"]
+  
+# プロンプト履歴とバージョン管理
+history:
+  - version: "1.0"
+    date: "2025-06-29"
+    changes: "初期プロンプト外部化"
+    author: "Claude Code"

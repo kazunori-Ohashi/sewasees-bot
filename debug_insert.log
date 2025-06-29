@@ -1,0 +1,201 @@
+[2025-06-30 14:13:25] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 14:13:25] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 14:13:25] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-06-30 14:16:53] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 14:16:53] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 14:16:53] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-06-30 14:17:24] INSERT_COMMAND: Starting for user 1095575450044084345
+[2025-06-30 14:17:24] INSERT_COMMAND: Defer successful for user 1095575450044084345
+[2025-06-30 14:17:24] INSERT_COMMAND: Set processing flag for user 1095575450044084345
+[2025-06-30 14:17:24] INSERT_COMMAND: Starting cache write for user 1095575450044084345, key: insert_mode:1095575450044084345
+[2025-06-30 14:17:24] INSERT_COMMAND: Cache before write: {}
+[2025-06-30 14:17:24] INSERT_COMMAND: Cache after write - key: insert_mode:1095575450044084345, entry: {'style': 'md', 'timestamp': '2025-06-30T14:17:24.983923'}
+[2025-06-30 14:17:24] INSERT_COMMAND: Full cache state: {'insert_mode:1095575450044084345': {'style': 'md', 'timestamp': '2025-06-30T14:17:24.983923'}}
+[2025-06-30 14:17:24] INSERT_COMMAND: Set local cache for user 1095575450044084345, cache_size: 1
+[2025-06-30 14:17:24] INSERT_COMMAND: Insert mode activated for user 1095575450044084345
+[2025-06-30 14:17:24] INSERT_COMMAND: Adding 4.8s delay to prevent burst for user 1095575450044084345
+[2025-06-30 14:17:29] PROMPTS: Loaded configuration from prompts.yaml
+[2025-06-30 14:17:30] INSERT_COMMAND: Sent followup notification for user 1095575450044084345 after 4.8s delay
+[2025-06-30 14:17:30] INSERT_COMMAND: Cleared processing flag for user 1095575450044084345
+[2025-06-30 14:17:46] ON_MESSAGE: Received message from user 1095575450044084345, content_length: 66
+[2025-06-30 14:17:46] ON_MESSAGE: Checking local cache for user 1095575450044084345, key: insert_mode:1095575450044084345
+[2025-06-30 14:17:46] ON_MESSAGE: Cache contents: {'insert_mode:1095575450044084345': {'style': 'md', 'timestamp': '2025-06-30T14:17:24.983923'}}
+[2025-06-30 14:17:46] ON_MESSAGE: Cache size: 1
+[2025-06-30 14:17:46] ON_MESSAGE: Found local insert mode for user 1095575450044084345, entry: {'style': 'md', 'timestamp': '2025-06-30T14:17:24.983923'}
+[2025-06-30 14:17:46] ON_MESSAGE: Deleted cache entry, remaining cache size: 0
+[2025-06-30 14:17:46] ON_MESSAGE: Processing insert for user 1095575450044084345, entry: {'style': 'md', 'timestamp': '2025-06-30T14:17:24.983923'}
+[2025-06-30 14:17:46] ON_MESSAGE: Adding 3.8s delay before notification for user 1095575450044084345
+[2025-06-30 14:17:51] ON_MESSAGE: Sent processing notification for user 1095575450044084345 after 3.8s delay
+[2025-06-30 14:17:51] PROMPTS: Retrieved markdown_formatting.system_prompt, length: 24
+[2025-06-30 14:17:51] PROMPTS: Retrieved markdown_formatting.formatting_template, length: 275
+[2025-06-30 14:17:53] ON_MESSAGE: OpenAI response received for user 1095575450044084345, markdown_length: 152
+[2025-06-30 14:17:53] ON_MESSAGE: Adding 5.9s delay before file send for user 1095575450044084345
+[2025-06-30 14:18:00] ON_MESSAGE: Successfully sent file insert_result_20250630_141753.md for user 1095575450044084345
+[2025-06-30 14:18:02] ON_MESSAGE: Cleaned up temp file for user 1095575450044084345
+[2025-06-30 14:18:02] ON_MESSAGE: User settings for 1095575450044084345: {'pending': {}, 'verified': {'email': {'tdd_bot': 'ame00000@gmail.com'}}}
+[2025-06-30 14:18:02] ON_MESSAGE: BOT_ID being used: default_bot
+[2025-06-30 14:18:02] ON_MESSAGE: Available email keys: ['tdd_bot']
+[2025-06-30 14:18:02] ON_MESSAGE: Found email with fallback ID tdd_bot: ame00000@gmail.com
+[2025-06-30 14:18:02] ON_MESSAGE: Final email recipient for user 1095575450044084345: ame00000@gmail.com
+[2025-06-30 14:18:49] PROMPTS: Retrieved tweet_generation.system_prompt, length: 40
+[2025-06-30 14:18:49] PROMPTS: Retrieved tweet_generation.tweet_template, length: 201
+[2025-06-30 14:42:05] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 14:42:05] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 14:42:05] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-06-30 14:42:17] INSERT_COMMAND: Starting for user 1095575450044084345
+[2025-06-30 14:42:17] INSERT_COMMAND: Defer successful for user 1095575450044084345
+[2025-06-30 14:42:17] INSERT_COMMAND: Set processing flag for user 1095575450044084345
+[2025-06-30 14:42:17] INSERT_COMMAND: Starting cache write for user 1095575450044084345, key: insert_mode:1095575450044084345
+[2025-06-30 14:42:17] INSERT_COMMAND: Cache before write: {}
+[2025-06-30 14:42:17] INSERT_COMMAND: Cache after write - key: insert_mode:1095575450044084345, entry: {'style': 'md', 'timestamp': '2025-06-30T14:42:17.939052'}
+[2025-06-30 14:42:17] INSERT_COMMAND: Full cache state: {'insert_mode:1095575450044084345': {'style': 'md', 'timestamp': '2025-06-30T14:42:17.939052'}}
+[2025-06-30 14:42:17] INSERT_COMMAND: Set local cache for user 1095575450044084345, cache_size: 1
+[2025-06-30 14:42:17] INSERT_COMMAND: Insert mode activated for user 1095575450044084345
+[2025-06-30 14:42:17] INSERT_COMMAND: Adding 4.5s delay to prevent burst for user 1095575450044084345
+[2025-06-30 14:42:22] PROMPTS: Failed to load configuration: while scanning a quoted scalar
+  in "prompts.yaml", line 256, column 17
+found unexpected end of stream
+  in "prompts.yaml", line 256, column 18
+[2025-06-30 14:42:22] INSERT_COMMAND: Failed to send followup: 400 Bad Request (error code: 50006): Cannot send an empty message
+[2025-06-30 14:42:22] INSERT_COMMAND: Cleared processing flag for user 1095575450044084345
+[2025-06-30 14:44:11] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 14:44:11] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 14:44:11] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-06-30 14:44:24] INSERT_COMMAND: Starting for user 1095575450044084345
+[2025-06-30 14:44:25] INSERT_COMMAND: Defer successful for user 1095575450044084345
+[2025-06-30 14:44:25] INSERT_COMMAND: Set processing flag for user 1095575450044084345
+[2025-06-30 14:44:25] INSERT_COMMAND: Starting cache write for user 1095575450044084345, key: insert_mode:1095575450044084345
+[2025-06-30 14:44:25] INSERT_COMMAND: Cache before write: {}
+[2025-06-30 14:44:25] INSERT_COMMAND: Cache after write - key: insert_mode:1095575450044084345, entry: {'style': 'md', 'timestamp': '2025-06-30T14:44:25.182107'}
+[2025-06-30 14:44:25] INSERT_COMMAND: Full cache state: {'insert_mode:1095575450044084345': {'style': 'md', 'timestamp': '2025-06-30T14:44:25.182107'}}
+[2025-06-30 14:44:25] INSERT_COMMAND: Set local cache for user 1095575450044084345, cache_size: 1
+[2025-06-30 14:44:25] INSERT_COMMAND: Insert mode activated for user 1095575450044084345
+[2025-06-30 14:44:25] INSERT_COMMAND: Adding 5.5s delay to prevent burst for user 1095575450044084345
+[2025-06-30 14:44:30] PROMPTS: Loaded configuration from prompts.yaml
+[2025-06-30 14:44:31] INSERT_COMMAND: Sent followup notification for user 1095575450044084345 after 5.5s delay
+[2025-06-30 14:44:31] INSERT_COMMAND: Cleared processing flag for user 1095575450044084345
+[2025-06-30 14:44:39] ON_MESSAGE: Received message from user 1095575450044084345, content_length: 10
+[2025-06-30 14:44:39] ON_MESSAGE: Checking local cache for user 1095575450044084345, key: insert_mode:1095575450044084345
+[2025-06-30 14:44:39] ON_MESSAGE: Cache contents: {'insert_mode:1095575450044084345': {'style': 'md', 'timestamp': '2025-06-30T14:44:25.182107'}}
+[2025-06-30 14:44:39] ON_MESSAGE: Cache size: 1
+[2025-06-30 14:44:39] ON_MESSAGE: Found local insert mode for user 1095575450044084345, entry: {'style': 'md', 'timestamp': '2025-06-30T14:44:25.182107'}
+[2025-06-30 14:44:39] ON_MESSAGE: Deleted cache entry, remaining cache size: 0
+[2025-06-30 14:44:39] ON_MESSAGE: Processing insert for user 1095575450044084345, entry: {'style': 'md', 'timestamp': '2025-06-30T14:44:25.182107'}
+[2025-06-30 14:44:39] ON_MESSAGE: Adding 3.3s delay before notification for user 1095575450044084345
+[2025-06-30 14:44:42] ON_MESSAGE: Sent processing notification for user 1095575450044084345 after 3.3s delay
+[2025-06-30 14:44:42] PROMPTS: Retrieved markdown_formatting.system_prompt, length: 31
+[2025-06-30 14:44:42] PROMPTS: Retrieved markdown_formatting.formatting_template, length: 180
+[2025-06-30 14:44:46] ON_MESSAGE: OpenAI response received for user 1095575450044084345, markdown_length: 259
+[2025-06-30 14:44:46] ON_MESSAGE: Adding 6.5s delay before file send for user 1095575450044084345
+[2025-06-30 14:44:53] ON_MESSAGE: Successfully sent file insert_result_20250630_144446.md for user 1095575450044084345
+[2025-06-30 14:44:55] ON_MESSAGE: Cleaned up temp file for user 1095575450044084345
+[2025-06-30 14:44:55] ON_MESSAGE: User settings for 1095575450044084345: {'pending': {}, 'verified': {'email': {'tdd_bot': 'ame00000@gmail.com'}}}
+[2025-06-30 14:44:55] ON_MESSAGE: BOT_ID being used: default_bot
+[2025-06-30 14:44:55] ON_MESSAGE: Available email keys: ['tdd_bot']
+[2025-06-30 14:44:55] ON_MESSAGE: Found email with fallback ID tdd_bot: ame00000@gmail.com
+[2025-06-30 14:44:55] ON_MESSAGE: Final email recipient for user 1095575450044084345: ame00000@gmail.com
+[2025-06-30 14:48:36] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 14:48:36] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 14:48:36] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-06-30 14:49:03] INSERT_COMMAND: Starting for user 1095575450044084345
+[2025-06-30 14:49:04] INSERT_COMMAND: Defer successful for user 1095575450044084345
+[2025-06-30 14:49:04] INSERT_COMMAND: Set processing flag for user 1095575450044084345
+[2025-06-30 14:49:04] INSERT_COMMAND: Starting cache write for user 1095575450044084345, key: insert_mode:1095575450044084345
+[2025-06-30 14:49:04] INSERT_COMMAND: Cache before write: {}
+[2025-06-30 14:49:04] INSERT_COMMAND: Cache after write - key: insert_mode:1095575450044084345, entry: {'style': 'md', 'timestamp': '2025-06-30T14:49:04.342149'}
+[2025-06-30 14:49:04] INSERT_COMMAND: Full cache state: {'insert_mode:1095575450044084345': {'style': 'md', 'timestamp': '2025-06-30T14:49:04.342149'}}
+[2025-06-30 14:49:04] INSERT_COMMAND: Set local cache for user 1095575450044084345, cache_size: 1
+[2025-06-30 14:49:04] INSERT_COMMAND: Insert mode activated for user 1095575450044084345
+[2025-06-30 14:49:04] INSERT_COMMAND: Adding 3.4s delay to prevent burst for user 1095575450044084345
+[2025-06-30 14:49:07] PROMPTS: Loaded configuration from prompts.yaml
+[2025-06-30 14:49:08] INSERT_COMMAND: Sent followup notification for user 1095575450044084345 after 3.4s delay
+[2025-06-30 14:49:08] INSERT_COMMAND: Cleared processing flag for user 1095575450044084345
+[2025-06-30 14:49:13] ON_MESSAGE: Received message from user 1095575450044084345, content_length: 6
+[2025-06-30 14:49:13] ON_MESSAGE: Checking local cache for user 1095575450044084345, key: insert_mode:1095575450044084345
+[2025-06-30 14:49:13] ON_MESSAGE: Cache contents: {'insert_mode:1095575450044084345': {'style': 'md', 'timestamp': '2025-06-30T14:49:04.342149'}}
+[2025-06-30 14:49:13] ON_MESSAGE: Cache size: 1
+[2025-06-30 14:49:13] ON_MESSAGE: Found local insert mode for user 1095575450044084345, entry: {'style': 'md', 'timestamp': '2025-06-30T14:49:04.342149'}
+[2025-06-30 14:49:13] ON_MESSAGE: Deleted cache entry, remaining cache size: 0
+[2025-06-30 14:49:13] ON_MESSAGE: Processing insert for user 1095575450044084345, entry: {'style': 'md', 'timestamp': '2025-06-30T14:49:04.342149'}
+[2025-06-30 14:49:13] ON_MESSAGE: Adding 4.8s delay before notification for user 1095575450044084345
+[2025-06-30 14:49:18] ON_MESSAGE: Sent processing notification for user 1095575450044084345 after 4.8s delay
+[2025-06-30 14:49:18] PROMPTS: Retrieved markdown_formatting.system_prompt, length: 132
+[2025-06-30 14:49:18] PROMPTS: Retrieved markdown_formatting.formatting_template, length: 176
+[2025-06-30 14:49:20] ON_MESSAGE: OpenAI response received for user 1095575450044084345, markdown_length: 13
+[2025-06-30 14:49:20] ON_MESSAGE: Adding 3.5s delay before file send for user 1095575450044084345
+[2025-06-30 14:49:24] ON_MESSAGE: Successfully sent file insert_result_20250630_144920.md for user 1095575450044084345
+[2025-06-30 14:49:26] ON_MESSAGE: Cleaned up temp file for user 1095575450044084345
+[2025-06-30 14:49:26] ON_MESSAGE: User settings for 1095575450044084345: {'pending': {}, 'verified': {'email': {'tdd_bot': 'ame00000@gmail.com'}}}
+[2025-06-30 14:49:26] ON_MESSAGE: BOT_ID being used: default_bot
+[2025-06-30 14:49:26] ON_MESSAGE: Available email keys: ['tdd_bot']
+[2025-06-30 14:49:26] ON_MESSAGE: Found email with fallback ID tdd_bot: ame00000@gmail.com
+[2025-06-30 14:49:26] ON_MESSAGE: Final email recipient for user 1095575450044084345: ame00000@gmail.com
+[2025-06-30 17:45:37] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 17:45:37] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 17:45:37] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-06-30 17:59:41] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 17:59:41] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 17:59:41] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-06-30 18:06:22] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 18:06:22] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 18:06:22] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-06-30 18:14:15] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 18:14:15] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 18:14:15] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-06-30 18:20:59] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 18:20:59] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 18:20:59] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-06-30 18:28:09] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 18:28:09] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 18:28:09] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-06-30 18:38:24] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 18:38:24] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 18:38:24] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-06-30 19:40:06] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 19:40:06] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 19:40:06] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-06-30 19:44:23] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-06-30 19:44:23] BOT_STARTUP: Found 1 user settings files
+[2025-06-30 19:44:23] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 00:07:27] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 00:07:27] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 00:07:27] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 00:14:41] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 00:14:41] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 00:14:41] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 00:26:28] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 00:26:28] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 00:26:28] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 00:40:36] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 00:40:36] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 00:40:36] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 00:48:56] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 00:48:56] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 00:48:56] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 00:55:53] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 00:55:53] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 00:55:53] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 01:07:14] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 01:07:14] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 01:07:14] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 01:28:28] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 01:28:28] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 01:28:28] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 08:05:00] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 08:05:00] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 08:05:00] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 14:10:32] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 14:10:32] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 14:10:32] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 15:33:54] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 15:33:54] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 15:33:54] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 16:50:51] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 16:50:51] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 16:50:51] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 19:05:23] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 19:05:23] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 19:05:23] BOT_STARTUP: User file: 1095575450044084345.yaml
+[2025-07-01 19:08:42] BOT_STARTUP: Checking user settings directory: data/user_settings
+[2025-07-01 19:08:42] BOT_STARTUP: Found 1 user settings files
+[2025-07-01 19:08:42] BOT_STARTUP: User file: 1095575450044084345.yaml

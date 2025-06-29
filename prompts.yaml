@@ -1,0 +1,263 @@
+# TDD Discord Bot - プロンプト設定ファイル
+# ===========================================
+# このファイルを編集してプロンプトのチューニングを行えます
+
+# -------------------------------------------------
+# 🗂️ バージョン管理
+# -------------------------------------------------
+version: "1.2"                 # 🔄 旧: 1.1 → 1.2 に更新
+last_updated: "2025-06-30"
+
+# -------------------------------------------------
+# 📝 AI記事生成プロンプト
+# -------------------------------------------------
+article_generation:
+  # -------------------------------------------------
+  # 🏗️ システムプロンプト（AI の基本動作を定義）
+  # -------------------------------------------------
+  system_prompt:
+    content: |
+      あなたは **専門的なテクニカルライター兼エディター** です。
+      与えられたコンテンツから、読者が一気読みできる **ストラクチャード記事** を作成してください。
+      - 文章の論理構造・見出し階層を最適化
+      - 例え話や具体例を交えて理解を促進
+      - 出力は Markdown 形式
+
+      ---
+      ## ⚠️ 無視すべき入力
+      - 意味をなさない文字列や記号の羅列
+      - 文脈を持たない短い文章（10 文字未満 かつ 固有名詞・動詞を含まない）
+      これらは記事生成の対象に **含めない** でください。全体が無意味/短文のみの場合は、
+      ```
+      ⚠️ 入力が記事生成に適していません
+      ```
+      とだけ返答して処理を終了します。
+    usage: "generate_article() 関数で使用"
+    trigger: "/article コマンド実行時"
+    parameters: []
+
+  # -------------------------------------------------
+  # PREP法テンプレート
+  # -------------------------------------------------
+  prep_template:
+    content: |
+      以下のコンテンツを **PREP法** を使用して魅力的な Markdown 記事に変換してください。
+      ### コンテンツ:
+      {content}
+
+      ---
+      ### 出力フォーマット
+      # 🟢 POINT
+      問題を明確に提示してください
+
+      ## 🟡 REASON
+      問題の深刻さや影響を説明してください
+
+      ## 🔵 EXAMPLE
+      解決策や提案を具体的に示してください
+
+      ## 🟢 POINT（まとめ）
+      解決策の価値を再強調してください
+    usage: "build_prompt() 関数で style='prep' 時に使用"
+    trigger: "/article コマンドで style パラメータが 'prep' の時"
+    parameters: ["content"]
+    notes: "PREP: Point → Reason → Example → Point"
+
+  # -------------------------------------------------
+  # PAS法テンプレート
+  # -------------------------------------------------
+  pas_template:
+    content: |
+      以下のコンテンツを **PAS法** を使用して説得力のある Markdown 記事に変換してください。
+      ### コンテンツ:
+      {content}
+
+      ---
+      ### 出力フォーマット
+      # 🚩 PROBLEM
+      問題・課題を明確に提示してください
+
+      ## 🔥 AGITATION
+      問題の深刻さや緊急性を強調してください
+
+      ## 💡 SOLUTION
+      具体的な解決策を提示してください
+
+      ## 🏁 結論
+      解決策の効果と価値をまとめてください
+    usage: "build_prompt() 関数で style='pas' 時に使用"
+    trigger: "/article コマンドで style パラメータが 'pas' の時"
+    parameters: ["content"]
+    notes: "PAS: Problem → Agitation → Solution"
+
+  # -------------------------------------------------
+  # 🎯 AIDA法テンプレート  （v1.1 で追加）
+  # -------------------------------------------------
+  aida_template:
+    content: |
+      以下のコンテンツを **AIDA法** を用いてマーケティング効果の高い Markdown 記事にしてください。
+      ### コンテンツ:
+      {content}
+
+      ---
+      ### 出力フォーマット
+      # 👀 ATTENTION
+      読者の興味を引くキャッチコピーを提示
+
+      ## 🤔 INTEREST
+      なぜ重要なのかを具体例を交えて説明
+
+      ## 🤝 DESIRE
+      ベネフィットを強調し、欲求を喚起
+
+      ## 🚀 ACTION
+      次の行動を促す CTA を提示
+    usage: "build_prompt() 関数で style='aida' 時に使用"
+    trigger: "/article コマンドで style パラメータが 'aida' の時"
+    parameters: ["content"]
+    notes: "AIDA: Attention → Interest → Desire → Action"
+
+# -------------------------------------------------
+# TLDR 要約生成プロンプト
+# -------------------------------------------------
+summarization:
+  system_prompt:
+    content: |
+      あなたは **TLDR 要約のエキスパート** です。長文を 3〜5 行の箇条書きに凝縮し、必ず **200 文字以内** に収めてください。
+
+      ---
+      ## ⚠️ 無視すべき入力
+      - 意味をなさない文字列や記号の羅列
+      - 文脈を持たない短い文章（10 文字未満）
+      全体が無意味/短文のみの場合は「⚠️ 要約対象がありません」と返答してください。
+    usage: "generate_tldr() 関数で使用"
+    trigger: "/tldr または include_tldr=True の時"
+    parameters: []
+
+  tldr_template:
+    content: |
+      以下のコンテンツを TLDR 形式にしてください。
+      - 箇条書き 3〜5 点
+      - 各行頭に "🔹" を付与
+      - 全体 200 文字以内
+      - 読者が瞬時に要点を把握できるよう簡潔に
+
+      ### コンテンツ:
+      {content}
+
+      ---
+      ### 出力例
+      🔹 要点1 …
+      🔹 要点2 …
+      🔹 要点3 …
+    usage: "generate_tldr() のメインテンプレート"
+    trigger: "TLDR 生成要求時"
+    parameters: ["content"]
+    notes: "エモジ付き・200文字"
+
+# -------------------------------------------------
+# 📑 Markdown 整形プロンプト（Insert 機能用）
+# -------------------------------------------------
+markdown_formatting:
+  system_prompt:
+    content: "あなたは **Markdown 整形のエキスパート** です。
+    ---
+      ## ⚠️ 無視すべき入力
+      - 意味をなさない文字列や記号の羅列
+      - 文脈を持たない短い文章（10 文字未満）
+      全体が無意味/短文のみの場合は「⚠️ 要約対象がありません」と返答してください。"
+    usage: "on_message() Insert モード処理で使用"
+    trigger: "/insert 後のユーザーメッセージ受信時"
+    parameters: []
+
+  formatting_template:
+    content: |
+      以下のテキストを **可読性最優先** で Markdown 整形してください。
+      ---
+      {content}
+      ---
+      ### ガイドライン
+      - 見出し階層 (#, ##, ###) を適切に
+      - 箇条書き・番号付きリスト活用
+      - **太字** *斜体* などで重要箇所を強調
+      - コードブロックや引用を必要に応じて
+      - 読みやすさを損なわないよう適切に改行
+    usage: "on_message() OpenAI API 呼び出しで使用"
+    trigger: "Insert モードでユーザーがメッセージ送信時"
+    parameters: ["content"]
+    notes: "元テキスト → Markdown"
+
+# -------------------------------------------------
+# 🐦 ツイート生成プロンプト（リアクション機能用）
+# -------------------------------------------------
+tweet_generation:
+  system_prompt:
+    content: "あなたは **SNS ライター** です。140 文字以内でインパクトのあるツイートを生成します。"
+    usage: "on_message() ❤️ リアクション処理で使用"
+    trigger: "メッセージに ❤️ 追加時"
+    parameters: []
+
+  tweet_template:
+    content: |
+      以下の内容を 140 文字以内で魅力的なツイートにしてください。
+      絵文字やハッシュタグは自由に追加して構いません。
+
+      ---
+      {content}
+    usage: "on_message() ツイート変換処理"
+    trigger: "長文 → 140 文字要約時"
+    parameters: ["content"]
+    notes: "140 文字制限 / 絵文字可"
+
+# -------------------------------------------------
+# 🔔 Discord 通知メッセージ
+# -------------------------------------------------
+discord_messages:
+  processing_messages:
+    insert_notification: "📝 次の発言を Markdown 整形します"
+    markdown_processing: "📝 Markdown 整形中..."
+    article_processing: "📝 ファイル処理を開始しています..."
+    ai_processing: "🤖 AI が記事を生成中です..."
+    pdf_processing: "📄 PDF ファイルを処理中です..."
+    audio_processing: "🎵 音声・動画ファイルを処理中です (時間がかかる場合があります)..."
+
+  completion_messages:
+    email_sent: "📧 記事をメールで送信しました (添付ファイル付き)"
+    email_sent_insert: "📧 整形結果をメールで送信しました (添付ファイル付き)"
+
+  error_messages:
+    already_processing: "⚠️ 既に処理中です。完了をお待ちください。"
+    email_failed: "⚠️ メール送信に失敗しましたが、整形は完了しました。"
+    email_not_registered: "❌ メール送信先が登録されていません。`/register_email` で登録してください。"
+
+# -------------------------------------------------
+# ⚙️ メタデータ & Tunings
+# -------------------------------------------------
+metadata:
+  api_usage_points:
+    - function: "generate_article()"
+      model: "gpt-4o-mini" 
+      max_tokens: 2000
+      temperature: 0.7
+      timeout: 30
+    - function: "generate_tldr()"
+      model: "gpt-4o-mini"
+      max_tokens: 300
+      temperature: 0.3
+      timeout: 30
+    - function: "on_message() [Insert]"
+      model: "gpt-4o-mini"
+      max_tokens: 1200
+      temperature: 0.4
+      timeout: 30
+    - function: "on_message() [Tweet]"
+      model: "gpt-4o-mini"
+      max_tokens: 160
+      temperature: 0.7
+      timeout: 30
+
+  tuning_guidelines:
+    temperature_ranges:
+      creative: "0.7-1.0"
+      balanced: "0.3-0.7"
+      precise: "0.0-0.3"
