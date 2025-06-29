@@ -29,3 +29,5 @@ pdfminer.six>=20221105  # PDF text extraction
 # Utilities
 aiofiles>=23.0.0
 typing-extensions>=4.5.0
+
+watchdog>=3.0.0
