@@ -455,9 +455,19 @@ class TDDCog(commands.Cog):
                     debug_log_to_file(f"INSERT_COMMAND: Full cache state: {dict(INSERT_MODE_CACHE)}")
                     debug_log_to_file(f"INSERT_COMMAND: Set local cache for user {user_id}, cache_size: {len(INSERT_MODE_CACHE)}")
             
-            # Rate limit対策: followupメッセージを送信しない
-            # ユーザーには次のメッセージでinsertモードが有効になったことを通知
-            debug_log_to_file(f"INSERT_COMMAND: Insert mode activated for user {user_id} - no followup to avoid rate limit")
+            # Send simple followup message to resolve "thinking" state
+            try:
+                await interaction.followup.send("📝 次の発言をマークダウン整形します", ephemeral=True)
+                debug_log_to_file(f"INSERT_COMMAND: Sent followup message to user {user_id}")
+            except discord.errors.HTTPException as e:
+                if "429" in str(e):  # Rate limit
+                    debug_log_to_file(f"INSERT_COMMAND: Rate limited, but insert mode still activated for user {user_id}")
+                else:
+                    debug_log_to_file(f"INSERT_COMMAND: Failed to send followup: {e}")
+            except Exception as e:
+                debug_log_to_file(f"INSERT_COMMAND: Unexpected error sending followup: {e}")
+            
+            debug_log_to_file(f"INSERT_COMMAND: Insert mode activated for user {user_id}")
             
             # 成功時のみprocessing_keyをクリア
             try:
@@ -1311,21 +1321,7 @@ class TDDBot(commands.Bot):
         else:
             debug_log_to_file(f"BOT_STARTUP: User settings directory does not exist")
 
-        # Start file watchers for cache sync
-        handler = type("CacheReloadHandler", (FileSystemEventHandler,), {
-            "on_modified": lambda self, e: (
-                INSERT_MODE_CACHE.clear() or
-                (
-                    INSERT_MODE_CACHE.update(
-                        json.loads(Path(INSERT_MODE_CACHE.path).read_text())
-                    ) if Path(INSERT_MODE_CACHE.path).exists() else None
-                )
-            ),
-        })()
-        observer = Observer()
-        observer.schedule(handler, path="cache", recursive=False)
-        observer.daemon = True
-        observer.start()
+        # Note: FileWatcher removed - INSERT_MODE_CACHE is now in-memory dict with asyncio.Lock
 
         # 古い一時ファイルのクリーンアップ
         cleanup_old_files()
