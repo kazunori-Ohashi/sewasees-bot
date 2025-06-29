@@ -438,10 +438,21 @@ class TDDCog(commands.Cog):
         include_tldr="TLDR（要約）も含めて生成する"
     )
     async def article_command(self, interaction: discord.Interaction, file: discord.Attachment, style: str = "prep", include_tldr: bool = False):
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
+        except discord.errors.NotFound:
+            logger.error("Interaction expired before defer could be called")
+            return
+        except Exception as e:
+            logger.error(f"Failed to defer interaction: {e}")
+            return
         
         # 処理開始を通知
-        await interaction.followup.send("📝 ファイル処理を開始しています...", ephemeral=True)
+        try:
+            await interaction.followup.send("📝 ファイル処理を開始しています...", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Failed to send followup message: {e}")
+            return
         
         try:
             if not self.bot.is_premium_user(interaction.user):
@@ -538,32 +549,39 @@ class TDDCog(commands.Cog):
                     # Send the embed and file, and keep the returned message object
                     sent_msg = await interaction.followup.send(embed=embed, file=file_obj)
                     # --- Send generated article via email ---
-                    recipient = os.getenv("EMAIL_RECIPIENT")
-                    subject_email = f"[TDD Bot] Article from {file.filename}"
-                    # final_content variable holds the markdown text
-                    body_email = final_content.replace("\n", "<br>")
-                    # attach the markdown file
-                    attachments = [(filename, final_content.encode("utf-8"), "text/markdown")]
-                    await send_email(recipient, subject_email, body_email, attachments)
-                    
-                    # 一時ファイル保存 (14日間)
                     user_id = str(interaction.user.id)
-                    temp_file_path = save_temp_file(final_content.encode("utf-8"), filename, user_id)
+                    recipient = load_user_settings(user_id).get("verified", {}).get("email", {}).get(BOT_ID)
+                    if recipient and recipient != "your_email_recipient_here":
+                        subject_email = f"[TDD Bot] Article from {file.filename}"
+                        # final_content variable holds the markdown text
+                        body_email = final_content.replace("\n", "<br>")
+                        # attach the markdown file
+                        attachments = [(filename, final_content.encode("utf-8"), "text/markdown")]
+                        try:
+                            await send_email(recipient, subject_email, body_email, attachments)
+                        except Exception as e:
+                            logger.error(f"Failed to send email: {e}")
+                            await interaction.followup.send("⚠️ メール送信に失敗しましたが、記事は正常に生成されました。", ephemeral=True)
                     
-                    # Email history cache saving
-                    key = f"last_email:{user_id}:{BOT_ID}"
-                    email_data = {
-                        "subject": subject_email,
-                        "body": body_email,
-                        "attachments": json.dumps([{
-                            "filename": filename,
-                            "path": temp_file_path,
-                            "mime_type": "text/markdown"
-                        }])
-                    }
-                    EMAIL_HISTORY_CACHE[key] = email_data
+                        # 一時ファイル保存 (14日間)
+                        temp_file_path = save_temp_file(final_content.encode("utf-8"), filename, user_id)
                     
-                    await interaction.followup.send("📧 記事をメールで送信しました", ephemeral=True)
+                        # Email history cache saving
+                        key = f"last_email:{user_id}:{BOT_ID}"
+                        email_data = {
+                            "subject": subject_email,
+                            "body": body_email,
+                            "attachments": json.dumps([{
+                                "filename": filename,
+                                "path": temp_file_path,
+                                "mime_type": "text/markdown"
+                            }])
+                        }
+                        EMAIL_HISTORY_CACHE[key] = email_data
+                        
+                        await interaction.followup.send("📧 記事をメールで送信しました", ephemeral=True)
+                    else:
+                        await interaction.followup.send("❌ メール送信先が登録されていません。`/register_email` でメールアドレスを登録してください。", ephemeral=True)
                     # --- END PATCH ---
                     await self.bot.log_to_moderator(
                         title="📄 Article Generated",
@@ -726,22 +744,29 @@ class TDDCog(commands.Cog):
                 embed.set_footer(text="💡 詳細な記事が必要な場合は /article コマンドをご利用ください")
                 sent_msg = await interaction.followup.send(embed=embed)
                 # --- Send TLDR via email ---
-                recipient = os.getenv("EMAIL_RECIPIENT")
-                subject_email = f"[TDD Bot] TLDR from {file.filename}"
-                body_email = tldr_summary.replace("\n", "<br>")
-                await send_email(recipient, subject_email, body_email)
-                
-                # Email history cache saving
                 user_id = str(interaction.user.id)
-                key = f"last_email:{user_id}:{BOT_ID}"
-                email_data = {
-                    "subject": subject_email,
-                    "body": body_email,
-                    "attachments": "[]"
-                }
-                EMAIL_HISTORY_CACHE[key] = email_data
+                recipient = load_user_settings(user_id).get("verified", {}).get("email", {}).get(BOT_ID)
+                if recipient and recipient != "your_email_recipient_here":
+                    subject_email = f"[TDD Bot] TLDR from {file.filename}"
+                    body_email = tldr_summary.replace("\n", "<br>")
+                    try:
+                        await send_email(recipient, subject_email, body_email)
+                    except Exception as e:
+                        logger.error(f"Failed to send TLDR email: {e}")
+                        await interaction.followup.send("⚠️ メール送信に失敗しましたが、TLDR は正常に生成されました。", ephemeral=True)
                 
-                await interaction.followup.send("📧 要約をメールで送信しました", ephemeral=True)
+                    # Email history cache saving
+                    key = f"last_email:{user_id}:{BOT_ID}"
+                    email_data = {
+                        "subject": subject_email,
+                        "body": body_email,
+                        "attachments": "[]"
+                    }
+                    EMAIL_HISTORY_CACHE[key] = email_data
+                    
+                    await interaction.followup.send("📧 要約をメールで送信しました", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ メール送信先が登録されていません。`/register_email` でメールアドレスを登録してください。", ephemeral=True)
                 # --- END PATCH ---
                 await self.bot.log_to_moderator(
                     title="📋 TLDR Generated",
@@ -804,11 +829,18 @@ class TDDCog(commands.Cog):
             f"{token}\n"
             "このトークンをコピーして、Discord 上で `/confirm_email` コマンドを実行して認証を完了してください。\n"
         )
-        await send_email(email, "[TDD Bot] メール認証のお知らせ", body)
-        await interaction.followup.send(
-            "✅ 認証メールを送信しました。受信ボックスを確認してください。",
-            ephemeral=True
-        )
+        try:
+            await send_email(email, "[TDD Bot] メール認証のお知らせ", body)
+            await interaction.followup.send(
+                "✅ 認証メールを送信しました。受信ボックスを確認してください。",
+                ephemeral=True
+            )
+        except Exception as e:
+            logger.error(f"Failed to send confirmation email: {e}")
+            await interaction.followup.send(
+                f"❌ 認証メール送信に失敗しました: {str(e)}",
+                ephemeral=True
+            )
 
     @discord.app_commands.command(name="confirm_email", description="認証トークンを入力してメール登録を完了します")
     @discord.app_commands.describe(token="メールに記載の認証トークン")
@@ -871,7 +903,15 @@ class TDDCog(commands.Cog):
                         logger.error(f"Failed to read temp file {file_path}: {e}")
 
         # メール送信（添付ファイル付き）
-        await send_email(recipient, subject, body, attachments if attachments else None)
+        try:
+            await send_email(recipient, subject, body, attachments if attachments else None)
+        except Exception as e:
+            logger.error(f"Failed to resend email: {e}")
+            await interaction.followup.send(
+                f"❌ メール再送信に失敗しました: {str(e)}",
+                ephemeral=True
+            )
+            return
 
         attachment_msg = f"（添付ファイル: {len(attachments)}個）" if attachments else "（添付ファイルなし）"
         await interaction.followup.send(
@@ -943,7 +983,11 @@ class TDDBot(commands.Bot):
             if recipient:
                 subject_email = "[TDD Bot] Insert Result"
                 body_email = markdown.replace("\n", "<br>")
-                await send_email(recipient, subject_email, body_email)
+                try:
+                    await send_email(recipient, subject_email, body_email)
+                except Exception as e:
+                    logger.error(f"Failed to send insert email: {e}")
+                    await message.channel.send("⚠️ メール送信に失敗しましたが、整形は正常に完了しました。", delete_after=30)
                 # Redis履歴保存
                 if self.redis_client:
                     user_id = str(message.author.id)
