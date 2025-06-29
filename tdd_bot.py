@@ -443,16 +443,17 @@ class TDDCog(commands.Cog):
                 debug_log_to_file(f"INSERT_COMMAND: Set Redis cache for user {user_id}, key: {insert_key}")
             else:
                 debug_log_to_file(f"INSERT_COMMAND: Cache before write: {dict(INSERT_MODE_CACHE)}")
-                INSERT_MODE_CACHE[insert_key] = {"style": "md", "timestamp": timestamp}
-                debug_log_to_file(f"INSERT_COMMAND: Cache after write: {dict(INSERT_MODE_CACHE)}")
-                debug_log_to_file(f"INSERT_COMMAND: Set local cache for user {user_id}, key: {insert_key}, cache_size: {len(INSERT_MODE_CACHE)}")
+                cache_entry = {"style": "md", "timestamp": timestamp}
+                INSERT_MODE_CACHE[insert_key] = cache_entry
+                # 書き込み後の実際の状態をログ出力
+                actual_entry = INSERT_MODE_CACHE.get(insert_key)
+                debug_log_to_file(f"INSERT_COMMAND: Cache after write - key: {insert_key}, entry: {actual_entry}")
+                debug_log_to_file(f"INSERT_COMMAND: Full cache state: {dict(INSERT_MODE_CACHE)}")
+                debug_log_to_file(f"INSERT_COMMAND: Set local cache for user {user_id}, cache_size: {len(INSERT_MODE_CACHE)}")
             
-            try:
-                await interaction.followup.send("📝 次の発言をマークダウン整形します。続けてメッセージを送信してください。", ephemeral=True)
-                debug_log_to_file(f"INSERT_COMMAND: Sent followup message to user {user_id}")
-            except Exception as e:
-                debug_log_to_file(f"INSERT_COMMAND: Failed to send followup: {e}")
-                pass  # Rate limit時は無視
+            # Rate limit対策: followupメッセージを送信しない
+            # ユーザーには次のメッセージでinsertモードが有効になったことを通知
+            debug_log_to_file(f"INSERT_COMMAND: Insert mode activated for user {user_id} - no followup to avoid rate limit")
             
             # 成功時のみprocessing_keyをクリア
             try:
@@ -1213,8 +1214,22 @@ class TDDBot(commands.Bot):
                 # --- Send formatted markdown via email with attachment ---
                 user_settings = load_user_settings(user_id)
                 debug_log_to_file(f"ON_MESSAGE: User settings for {user_id}: {user_settings}")
-                recipient = user_settings.get("verified", {}).get("email", {}).get(BOT_ID)
-                debug_log_to_file(f"ON_MESSAGE: Email recipient for user {user_id}: {recipient}")
+                debug_log_to_file(f"ON_MESSAGE: BOT_ID being used: {BOT_ID}")
+                
+                # Email lookup with detailed debugging
+                email_dict = user_settings.get("verified", {}).get("email", {})
+                debug_log_to_file(f"ON_MESSAGE: Available email keys: {list(email_dict.keys())}")
+                recipient = email_dict.get(BOT_ID)
+                
+                # Fallback: try common bot IDs if primary lookup fails
+                if not recipient:
+                    for fallback_id in ["tdd_bot", "default_bot", "sewasees_bot"]:
+                        if fallback_id in email_dict:
+                            recipient = email_dict[fallback_id]
+                            debug_log_to_file(f"ON_MESSAGE: Found email with fallback ID {fallback_id}: {recipient}")
+                            break
+                
+                debug_log_to_file(f"ON_MESSAGE: Final email recipient for user {user_id}: {recipient}")
                 if recipient:
                     logger.info(f"INSERT: Sending email to {recipient}")
                     
