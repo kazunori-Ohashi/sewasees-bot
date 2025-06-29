@@ -992,7 +992,14 @@ class TDDBot(commands.Bot):
 
         # Start file watchers for cache sync
         handler = type("CacheReloadHandler", (FileSystemEventHandler,), {
-            "on_modified": lambda self, e: INSERT_MODE_CACHE.clear() or INSERT_MODE_CACHE.update(json.loads(Path(INSERT_MODE_CACHE.path).read_text())),
+            "on_modified": lambda self, e: (
+                INSERT_MODE_CACHE.clear() or
+                (
+                    INSERT_MODE_CACHE.update(
+                        json.loads(Path(INSERT_MODE_CACHE.path).read_text())
+                    ) if Path(INSERT_MODE_CACHE.path).exists() else None
+                )
+            ),
         })()
         observer = Observer()
         observer.schedule(handler, path="cache", recursive=False)
