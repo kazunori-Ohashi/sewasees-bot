@@ -1153,6 +1153,15 @@ class TDDBot(commands.Bot):
         if insert_mode_entry:
             logger.info(f"INSERT: Processing insert for user {user_id}")
             debug_log_to_file(f"ON_MESSAGE: Processing insert for user {user_id}, entry: {insert_mode_entry}")
+            
+            # UX一貫性: articleと同様の処理開始通知
+            try:
+                await message.channel.send("📝 マークダウン整形中...", delete_after=30)
+                debug_log_to_file(f"ON_MESSAGE: Sent processing notification for user {user_id}")
+            except Exception as e:
+                debug_log_to_file(f"ON_MESSAGE: Failed to send processing notification: {e}")
+                # 通知失敗でも処理は継続
+            
             style = insert_mode_entry.get("style", "md")
             prompt = build_prompt(message.content, style)
             
