@@ -398,37 +398,64 @@ class TDDCog(commands.Cog):
         logger.info(f"INSERT: Starting command for user {user_id}")
         debug_log_to_file(f"INSERT_COMMAND: Starting for user {user_id}")
         
+        # 最優先: 重複実行防止チェック（defer前に実行）
+        if processing_key in RATE_LIMIT_CACHE:
+            debug_log_to_file(f"INSERT_COMMAND: User {user_id} already processing, rejecting immediately")
+            # defer前なので、通常のresponseで応答
+            try:
+                await interaction.response.send_message("⚠️ 既に処理中です。完了をお待ちください。", ephemeral=True)
+            except:
+                pass  # Rate limit時は無視
+            return
+            
+        # Interaction状態の事前チェック
+        if interaction.is_expired():
+            debug_log_to_file(f"INSERT_COMMAND: Interaction already expired for user {user_id}")
+            logger.error(f"Insert Interaction already expired (user: {user_id})")
+            return
+            
+        # 処理開始フラグ設定（defer前に設定して重複を防ぐ）
+        RATE_LIMIT_CACHE[processing_key] = True
+        debug_log_to_file(f"INSERT_COMMAND: Set processing flag for user {user_id}")
+        
         # 最優先: 即座にdefer()を実行
         try:
             await interaction.response.defer(ephemeral=True)
             debug_log_to_file(f"INSERT_COMMAND: Defer successful for user {user_id}")
         except discord.errors.NotFound:
             logger.error(f"Insert Interaction expired before defer (user: {interaction.user.id})")
+            debug_log_to_file(f"INSERT_COMMAND: Interaction expired before defer for user {user_id}")
+            # defer失敗時はprocessing_keyをクリア
+            try:
+                del RATE_LIMIT_CACHE[processing_key]
+                debug_log_to_file(f"INSERT_COMMAND: Cleared processing flag after defer failure for user {user_id}")
+            except:
+                pass
             return
         except discord.errors.InteractionResponded:
             logger.warning(f"Insert Interaction already responded (user: {interaction.user.id})")
+            debug_log_to_file(f"INSERT_COMMAND: Interaction already responded for user {user_id}")
+            try:
+                del RATE_LIMIT_CACHE[processing_key]
+            except:
+                pass
             return
         except Exception as e:
             logger.error(f"Failed to defer Insert interaction: {e}")
-            return
-        
-        # 重複実行防止チェック
-        if processing_key in RATE_LIMIT_CACHE:
-            debug_log_to_file(f"INSERT_COMMAND: User {user_id} already processing, rejecting")
+            debug_log_to_file(f"INSERT_COMMAND: Failed to defer for user {user_id}: {e}")
             try:
-                await interaction.followup.send("⚠️ 既に処理中です。完了をお待ちください。", ephemeral=True)
+                del RATE_LIMIT_CACHE[processing_key]
             except:
-                pass  # Rate limit時は無視
+                pass
             return
-            
-        # 処理開始フラグ設定
-        RATE_LIMIT_CACHE[processing_key] = True
-        debug_log_to_file(f"INSERT_COMMAND: Set processing flag for user {user_id}")
         
+        # キャッシュ書き込み処理
         try:
             from datetime import datetime
             insert_key = f"insert_mode:{user_id}"
             timestamp = datetime.now().isoformat()
+            
+            debug_log_to_file(f"INSERT_COMMAND: Starting cache write for user {user_id}, key: {insert_key}")
             
             if self.bot.redis_client:
                 data = {"style": "md", "timestamp": timestamp}
@@ -436,9 +463,10 @@ class TDDCog(commands.Cog):
                 self.bot.redis_client.expire(insert_key, 300)  # 5分で期限切れ
                 debug_log_to_file(f"INSERT_COMMAND: Set Redis cache for user {user_id}, key: {insert_key}")
             else:
+                debug_log_to_file(f"INSERT_COMMAND: Cache before write: {dict(INSERT_MODE_CACHE)}")
                 INSERT_MODE_CACHE[insert_key] = {"style": "md", "timestamp": timestamp}
+                debug_log_to_file(f"INSERT_COMMAND: Cache after write: {dict(INSERT_MODE_CACHE)}")
                 debug_log_to_file(f"INSERT_COMMAND: Set local cache for user {user_id}, key: {insert_key}, cache_size: {len(INSERT_MODE_CACHE)}")
-                debug_log_to_file(f"INSERT_COMMAND: Cache contents: {dict(INSERT_MODE_CACHE)}")
             
             try:
                 await interaction.followup.send("📝 次の発言をマークダウン整形します。続けてメッセージを送信してください。", ephemeral=True)
