@@ -375,6 +375,11 @@ class TDDCog(commands.Cog):
         self.bot = bot
     @discord.app_commands.command(name="insert", description="次の発言をマークダウン整形します")
     async def insert_command(self, interaction: discord.Interaction):
+        """
+        /insert スラッシュコマンド: 次の発言をマークダウン整形モードにする
+        """
+        # Defer initial response to avoid Unknown interaction error
+        await interaction.response.defer(ephemeral=True)
         from datetime import datetime
         user_id = str(interaction.user.id)
         if self.bot.redis_client:
@@ -384,7 +389,7 @@ class TDDCog(commands.Cog):
             self.bot.redis_client.expire(key, 300)  # 5分で期限切れ
         else:
             INSERT_MODE_CACHE[f"insert_mode:{user_id}"] = {"style": "md", "timestamp": datetime.now().isoformat()}
-        await interaction.response.send_message("📝 次の発言をマークダウン整形します。続けてメッセージを送信してください。",ephemeral=True)
+        await interaction.followup.send("📝 次の発言をマークダウン整形します。続けてメッセージを送信してください。", ephemeral=True)
     @discord.app_commands.command(name="help", description="このBotの使い方一覧を表示")
     async def help_command(self, interaction: discord.Interaction):
         embed = discord.Embed(
