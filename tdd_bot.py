@@ -398,56 +398,35 @@ class TDDCog(commands.Cog):
         logger.info(f"INSERT: Starting command for user {user_id}")
         debug_log_to_file(f"INSERT_COMMAND: Starting for user {user_id}")
         
-        # 最優先: 重複実行防止チェック（defer前に実行）
-        if processing_key in RATE_LIMIT_CACHE:
-            debug_log_to_file(f"INSERT_COMMAND: User {user_id} already processing, rejecting immediately")
-            # defer前なので、通常のresponseで応答
-            try:
-                await interaction.response.send_message("⚠️ 既に処理中です。完了をお待ちください。", ephemeral=True)
-            except:
-                pass  # Rate limit時は無視
-            return
-            
-        # Interaction状態の事前チェック
-        if interaction.is_expired():
-            debug_log_to_file(f"INSERT_COMMAND: Interaction already expired for user {user_id}")
-            logger.error(f"Insert Interaction already expired (user: {user_id})")
-            return
-            
-        # 処理開始フラグ設定（defer前に設定して重複を防ぐ）
-        RATE_LIMIT_CACHE[processing_key] = True
-        debug_log_to_file(f"INSERT_COMMAND: Set processing flag for user {user_id}")
-        
-        # 最優先: 即座にdefer()を実行
+        # 最優先: 即座にdefer()を実行（3秒制限内に確実に実行）
         try:
             await interaction.response.defer(ephemeral=True)
             debug_log_to_file(f"INSERT_COMMAND: Defer successful for user {user_id}")
         except discord.errors.NotFound:
             logger.error(f"Insert Interaction expired before defer (user: {interaction.user.id})")
             debug_log_to_file(f"INSERT_COMMAND: Interaction expired before defer for user {user_id}")
-            # defer失敗時はprocessing_keyをクリア
-            try:
-                del RATE_LIMIT_CACHE[processing_key]
-                debug_log_to_file(f"INSERT_COMMAND: Cleared processing flag after defer failure for user {user_id}")
-            except:
-                pass
             return
         except discord.errors.InteractionResponded:
             logger.warning(f"Insert Interaction already responded (user: {interaction.user.id})")
             debug_log_to_file(f"INSERT_COMMAND: Interaction already responded for user {user_id}")
-            try:
-                del RATE_LIMIT_CACHE[processing_key]
-            except:
-                pass
             return
         except Exception as e:
             logger.error(f"Failed to defer Insert interaction: {e}")
             debug_log_to_file(f"INSERT_COMMAND: Failed to defer for user {user_id}: {e}")
-            try:
-                del RATE_LIMIT_CACHE[processing_key]
-            except:
-                pass
             return
+        
+        # defer成功後に重複実行防止チェック
+        if processing_key in RATE_LIMIT_CACHE:
+            debug_log_to_file(f"INSERT_COMMAND: User {user_id} already processing, rejecting after defer")
+            try:
+                await interaction.followup.send("⚠️ 既に処理中です。完了をお待ちください。", ephemeral=True)
+            except:
+                pass  # Rate limit時は無視
+            return
+            
+        # 処理開始フラグ設定
+        RATE_LIMIT_CACHE[processing_key] = True
+        debug_log_to_file(f"INSERT_COMMAND: Set processing flag for user {user_id}")
         
         # キャッシュ書き込み処理
         try:
@@ -1189,10 +1168,19 @@ class TDDBot(commands.Bot):
                 
                 # 一時ファイル作成とDiscord添付
                 import tempfile
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as tmp_file:
-                    tmp_file.write(markdown)
-                    tmp_file.flush()
-                    file_obj = discord.File(tmp_file.name, filename=filename)
+                import os
+                tmp_file_path = None
+                
+                try:
+                    # 一時ファイル作成
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as tmp_file:
+                        tmp_file.write(markdown)
+                        tmp_file.flush()
+                        os.fsync(tmp_file.fileno())  # ディスクへの書き込みを確実に実行
+                        tmp_file_path = tmp_file.name
+                    
+                    # ファイルが確実に閉じられた後にDiscordファイルオブジェクト作成
+                    file_obj = discord.File(tmp_file_path, filename=filename)
                     
                     # Embedメッセージとファイル添付で送信
                     embed = discord.Embed(
@@ -1204,14 +1192,23 @@ class TDDBot(commands.Bot):
                     embed.add_field(name="文字数", value=f"{len(markdown)} 文字", inline=True)
                     
                     sent_msg = await message.channel.send(embed=embed, file=file_obj)
+                    debug_log_to_file(f"ON_MESSAGE: Successfully sent file {filename} for user {user_id}")
                     
-                # 一時ファイルクリーンアップ
-                try:
-                    import os
-                    os.unlink(tmp_file.name)
-                    debug_log_to_file(f"ON_MESSAGE: Cleaned up temp file for user {user_id}")
+                    # Discord処理完了を待つ（添付ファイル処理時間を確保）
+                    await asyncio.sleep(2)
+                    
                 except Exception as e:
-                    debug_log_to_file(f"ON_MESSAGE: Failed to cleanup temp file: {e}")
+                    debug_log_to_file(f"ON_MESSAGE: Failed to send file for user {user_id}: {e}")
+                    logger.error(f"INSERT: Failed to send markdown file for user {user_id}: {e}")
+                    
+                finally:
+                    # 一時ファイルクリーンアップ（finally節で確実に実行）
+                    if tmp_file_path and os.path.exists(tmp_file_path):
+                        try:
+                            os.unlink(tmp_file_path)
+                            debug_log_to_file(f"ON_MESSAGE: Cleaned up temp file for user {user_id}")
+                        except Exception as e:
+                            debug_log_to_file(f"ON_MESSAGE: Failed to cleanup temp file: {e}")
                 
                 # --- Send formatted markdown via email with attachment ---
                 user_settings = load_user_settings(user_id)
