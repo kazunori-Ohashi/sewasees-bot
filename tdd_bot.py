@@ -198,6 +198,89 @@ def check_dependencies():
     else:
         logger.info("✅ All dependencies check passed")
 
+# --- Rate Limiting モニタリングデータ収集 ---
+RATE_LIMIT_STATS = {
+    'total_429_errors': 0,
+    'errors_by_user': {},
+    'errors_by_command': {},
+    'errors_by_hour': {},
+    'recent_errors': []  # 最近50件のエラー情報
+}
+
+def log_rate_limit_event(user_id, command_name, error_details):
+    """
+    Rate Limitイベントを統計情報に記録
+    """
+    from datetime import datetime
+    
+    # 全体統計更新
+    RATE_LIMIT_STATS['total_429_errors'] += 1
+    
+    # ユーザー別統計
+    if user_id not in RATE_LIMIT_STATS['errors_by_user']:
+        RATE_LIMIT_STATS['errors_by_user'][user_id] = 0
+    RATE_LIMIT_STATS['errors_by_user'][user_id] += 1
+    
+    # コマンド別統計
+    if command_name not in RATE_LIMIT_STATS['errors_by_command']:
+        RATE_LIMIT_STATS['errors_by_command'][command_name] = 0
+    RATE_LIMIT_STATS['errors_by_command'][command_name] += 1
+    
+    # 時間帯別統計
+    hour = datetime.now().hour
+    if hour not in RATE_LIMIT_STATS['errors_by_hour']:
+        RATE_LIMIT_STATS['errors_by_hour'][hour] = 0
+    RATE_LIMIT_STATS['errors_by_hour'][hour] += 1
+    
+    # 最近のエラー情報を保存（最大50件）
+    recent_error = {
+        'timestamp': datetime.now().isoformat(),
+        'user_id': user_id,
+        'command': command_name,
+        'details': error_details
+    }
+    RATE_LIMIT_STATS['recent_errors'].append(recent_error)
+    if len(RATE_LIMIT_STATS['recent_errors']) > 50:
+        RATE_LIMIT_STATS['recent_errors'].pop(0)
+    
+    # 統計サマリーログ
+    debug_log_to_file(f"RATE_LIMIT_STATS: Total: {RATE_LIMIT_STATS['total_429_errors']}, User {user_id}: {RATE_LIMIT_STATS['errors_by_user'][user_id]}, Command {command_name}: {RATE_LIMIT_STATS['errors_by_command'][command_name]}")
+
+# --- ユーザー権限キャッシュ ---
+USER_PERMISSIONS_CACHE = {}
+CACHE_TTL = 300  # 5分間
+
+def get_cached_user_permissions(user_id):
+    """
+    ユーザー権限情報をキャッシュから取得
+    """
+    import time
+    current_time = time.time()
+    
+    if user_id in USER_PERMISSIONS_CACHE:
+        cache_entry = USER_PERMISSIONS_CACHE[user_id]
+        if current_time - cache_entry['timestamp'] < CACHE_TTL:
+            debug_log_to_file(f"CACHE_HIT: User permissions for {user_id}")
+            return cache_entry['permissions']
+        else:
+            # キャッシュ期限切れ
+            del USER_PERMISSIONS_CACHE[user_id]
+            debug_log_to_file(f"CACHE_EXPIRED: User permissions for {user_id}")
+    
+    debug_log_to_file(f"CACHE_MISS: User permissions for {user_id}")
+    return None
+
+def set_cached_user_permissions(user_id, permissions):
+    """
+    ユーザー権限情報をキャッシュに保存
+    """
+    import time
+    USER_PERMISSIONS_CACHE[user_id] = {
+        'permissions': permissions,
+        'timestamp': time.time()
+    }
+    debug_log_to_file(f"CACHE_SET: User permissions for {user_id}")
+
 # --- 例外クラス ---
 class UsageLimitExceeded(Exception):
     """使用回数制限超過例外"""
@@ -305,6 +388,89 @@ def build_prompt(content: str, style: str = "prep") -> str:
 """
     
     return template.format(content=content)
+
+# --- Rate Limiting バックオフハンドラー ---
+async def safe_discord_api_call(api_call_func, max_retries=3, base_delay=1.0, user_id=None):
+    """
+    Discord API呼び出しを429エラーバックオフで安全に実行
+    
+    Args:
+        api_call_func: 実行するAPI呼び出し関数
+        max_retries: 最大リトライ回数
+        base_delay: ベース遅延秒数
+        user_id: ログ用ユーザーID
+    
+    Returns:
+        API呼び出しの結果またはNone
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            return await api_call_func()
+        except discord.errors.HTTPException as e:
+            if e.status == 429:  # Rate Limited
+                # 詳細なRate Limit情報を収集・ログ出力
+                rate_limit_info = {
+                    'timestamp': datetime.now().isoformat(),
+                    'user_id': user_id,
+                    'attempt': attempt + 1,
+                    'status_code': e.status,
+                    'retry_after': getattr(e, 'retry_after', None),
+                    'headers': {}
+                }
+                
+                # Discord Rate Limitヘッダーの収集
+                if hasattr(e, 'response') and e.response:
+                    headers = e.response.headers
+                    rate_limit_headers = {
+                        'X-RateLimit-Limit': headers.get('X-RateLimit-Limit'),
+                        'X-RateLimit-Remaining': headers.get('X-RateLimit-Remaining'),
+                        'X-RateLimit-Reset': headers.get('X-RateLimit-Reset'),
+                        'X-RateLimit-Reset-After': headers.get('X-RateLimit-Reset-After'),
+                        'X-RateLimit-Bucket': headers.get('X-RateLimit-Bucket'),
+                        'Retry-After': headers.get('Retry-After'),
+                        'X-RateLimit-Global': headers.get('X-RateLimit-Global'),
+                        'X-RateLimit-Scope': headers.get('X-RateLimit-Scope')
+                    }
+                    rate_limit_info['headers'] = rate_limit_headers
+                    
+                    # 詳細モニタリングログ出力
+                    debug_log_to_file(f"RATE_LIMIT_DETAIL: {json.dumps(rate_limit_info, ensure_ascii=False, indent=2)}")
+                    
+                    # 簡潔サマリーログ
+                    limit = rate_limit_headers.get('X-RateLimit-Limit', 'unknown')
+                    remaining = rate_limit_headers.get('X-RateLimit-Remaining', 'unknown')
+                    reset_after = rate_limit_headers.get('X-RateLimit-Reset-After', 'unknown')
+                    bucket = rate_limit_headers.get('X-RateLimit-Bucket', 'unknown')
+                    debug_log_to_file(f"RATE_LIMIT_SUMMARY: User {user_id}, Limit: {limit}, Remaining: {remaining}, Reset in: {reset_after}s, Bucket: {bucket}")
+                    
+                    # 統計情報に記録
+                    command_name = getattr(api_call_func, '__name__', 'unknown_api_call')
+                    log_rate_limit_event(user_id, command_name, rate_limit_info)
+                
+                if attempt < max_retries:
+                    # Exponential backoff with jitter
+                    import random
+                    delay = (base_delay * (2 ** attempt)) + random.uniform(0, 1)
+                    
+                    # Retry-Afterヘッダーがある場合はそれを優先
+                    if hasattr(e, 'retry_after') and e.retry_after:
+                        delay = max(delay, e.retry_after)
+                    
+                    debug_log_to_file(f"RATE_LIMIT: 429 error for user {user_id}, attempt {attempt + 1}/{max_retries + 1}, waiting {delay:.1f}s")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    debug_log_to_file(f"RATE_LIMIT: Max retries exceeded for user {user_id}, giving up")
+                    return None
+            else:
+                # 429以外のエラーは再試行しない
+                debug_log_to_file(f"RATE_LIMIT: Non-429 error for user {user_id}: {e}")
+                raise
+        except Exception as e:
+            debug_log_to_file(f"RATE_LIMIT: Unexpected error for user {user_id}: {e}")
+            raise
+    
+    return None
 
 # --- ファイル処理モジュール ---
 async def extract_audio(video_path: str, output_path: str) -> bool:
@@ -459,10 +625,16 @@ class TDDCog(commands.Cog):
             
             debug_log_to_file(f"INSERT_COMMAND: Insert mode activated for user {user_id}")
             
-            # Discord標準パターン: followupで完了通知
+            # バースト防止: followup送信前に遅延追加
+            import random
+            delay_seconds = random.uniform(3, 6)  # 3-6秒のランダム遅延
+            debug_log_to_file(f"INSERT_COMMAND: Adding {delay_seconds:.1f}s delay to prevent burst for user {user_id}")
+            await asyncio.sleep(delay_seconds)
+            
+            # Discord標準パターン: followupで完了通知（遅延後）
             try:
                 await interaction.followup.send("📝 次の発言をマークダウン整形します", ephemeral=True)
-                debug_log_to_file(f"INSERT_COMMAND: Sent followup notification for user {user_id}")
+                debug_log_to_file(f"INSERT_COMMAND: Sent followup notification for user {user_id} after {delay_seconds:.1f}s delay")
             except Exception as e:
                 debug_log_to_file(f"INSERT_COMMAND: Failed to send followup: {e}")
                 # followup失敗でも機能は有効
@@ -1141,6 +1313,69 @@ class TDDCog(commands.Cog):
             ephemeral=True
         )
 
+    @discord.app_commands.command(name="rate_stats", description="[管理者用] Rate Limiting統計情報を表示")
+    async def rate_stats_command(self, interaction: discord.Interaction):
+        """
+        Rate Limiting統計情報を表示（管理者用）
+        """
+        # 管理者権限チェック（簡易版）
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ このコマンドは管理者のみ使用できます。", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        # Rate Limiting統計情報を収集
+        stats = RATE_LIMIT_STATS
+        total_errors = stats['total_429_errors']
+        
+        # メイン統計embed
+        embed = discord.Embed(
+            title="📈 Rate Limiting 統計情報",
+            description=f"合計429エラー数: **{total_errors}回**",
+            color=discord.Color.orange()
+        )
+        
+        # ユーザー別統計（上位5人）
+        user_errors = sorted(stats['errors_by_user'].items(), key=lambda x: x[1], reverse=True)[:5]
+        if user_errors:
+            user_list = "\n".join([f"<@{user_id}>: {count}回" for user_id, count in user_errors])
+            embed.add_field(name="👥 ユーザー別エラー（上位5人）", value=user_list, inline=False)
+        
+        # コマンド別統計
+        command_errors = stats['errors_by_command']
+        if command_errors:
+            command_list = "\n".join([f"`{cmd}`: {count}回" for cmd, count in command_errors.items()])
+            embed.add_field(name="💻 コマンド別エラー", value=command_list, inline=False)
+        
+        # 時間帯別統計（上位5時間）
+        hour_errors = sorted(stats['errors_by_hour'].items(), key=lambda x: x[1], reverse=True)[:5]
+        if hour_errors:
+            hour_list = "\n".join([f"{hour:02d}:00-{hour:02d}:59: {count}回" for hour, count in hour_errors])
+            embed.add_field(name="⏰ 時間帯別エラー（上位5時間）", value=hour_list, inline=False)
+        
+        # キャッシュ統計
+        cache_size = len(USER_PERMISSIONS_CACHE)
+        embed.add_field(name="📄 キャッシュ状態", value=f"ユーザー権限キャッシュ: {cache_size}件", inline=False)
+        
+        # 最近のエラー（直近5件）
+        recent_errors = stats['recent_errors'][-5:] if stats['recent_errors'] else []
+        if recent_errors:
+            recent_list = "\n".join([
+                f"`{error['timestamp'][:19]}` <@{error['user_id']}> `{error['command']}`" 
+                for error in recent_errors
+            ])
+            embed.add_field(name="⏱️ 最近のエラー（直近5件）", value=recent_list, inline=False)
+        
+        if total_errors == 0:
+            embed.description = "✅ Rate Limitingエラーは発生していません。"
+            embed.color = discord.Color.green()
+        
+        embed.set_footer(text="🔄 リアルタイム統計 | キャッシュTTL: 5分")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        debug_log_to_file(f"RATE_STATS: Admin {interaction.user.id} viewed Rate Limiting statistics")
+
 class TDDBot(commands.Bot):
     """TDD仕様に基づいたDiscord Bot"""
     
@@ -1214,10 +1449,16 @@ class TDDBot(commands.Bot):
             logger.info(f"INSERT: Processing insert for user {user_id}")
             debug_log_to_file(f"ON_MESSAGE: Processing insert for user {user_id}, entry: {insert_mode_entry}")
             
-            # UX一貫性: articleと同様の処理開始通知
+            # バースト防止: 通知送信前に遅延追加
+            import random
+            notify_delay = random.uniform(2, 5)  # 2-5秒のランダム遅延
+            debug_log_to_file(f"ON_MESSAGE: Adding {notify_delay:.1f}s delay before notification for user {user_id}")
+            await asyncio.sleep(notify_delay)
+            
+            # UX一貫性: articleと同様の処理開始通知（遅延後）
             try:
                 await message.channel.send("📝 マークダウン整形中...", delete_after=30)
-                debug_log_to_file(f"ON_MESSAGE: Sent processing notification for user {user_id}")
+                debug_log_to_file(f"ON_MESSAGE: Sent processing notification for user {user_id} after {notify_delay:.1f}s delay")
             except Exception as e:
                 debug_log_to_file(f"ON_MESSAGE: Failed to send processing notification: {e}")
                 # 通知失敗でも処理は継続
@@ -1269,6 +1510,11 @@ class TDDBot(commands.Bot):
                     )
                     embed.add_field(name="ファイル名", value=filename, inline=True)
                     embed.add_field(name="文字数", value=f"{len(markdown)} 文字", inline=True)
+                    
+                    # ファイル送信前にも遅延を追加（自然なアクセスパターン）
+                    file_delay = random.uniform(3, 7)  # 3-7秒のランダム遅延
+                    debug_log_to_file(f"ON_MESSAGE: Adding {file_delay:.1f}s delay before file send for user {user_id}")
+                    await asyncio.sleep(file_delay)
                     
                     sent_msg = await message.channel.send(embed=embed, file=file_obj)
                     debug_log_to_file(f"ON_MESSAGE: Successfully sent file {filename} for user {user_id}")
@@ -1409,15 +1655,30 @@ class TDDBot(commands.Bot):
             logger.error(f"Failed to send moderator log: {e}")
     
     def is_premium_user(self, member: discord.Member) -> bool:
-        """Premiumユーザーかどうかを判定"""
-        # テスト用: 全ユーザーをPremiumとして扱う
-        # 本番環境では下記の元のコードに戻すこと
-        return True
+        """Premiumユーザーかどうかを判定（キャッシュ対応）"""
+        user_id = str(member.id)
         
-        # 元のコード（本番用）:
+        # キャッシュから権限情報を取得試行
+        cached_permissions = get_cached_user_permissions(user_id)
+        if cached_permissions is not None:
+            return cached_permissions.get('is_premium', False)
+        
+        # キャッシュミス: 実際の権限チェックを実行
+        # テスト用: 全ユーザーをPremiumとして扱う
+        is_premium = True
+        
+        # 本番環境では下記のコードを使用:
         # if not member.roles:
-        #     return False
-        # return any(role.name.lower() == self.premium_role_name for role in member.roles)
+        #     is_premium = False
+        # else:
+        #     is_premium = any(role.name.lower() == self.premium_role_name for role in member.roles)
+        
+        # 結果をキャッシュに保存
+        permissions = {'is_premium': is_premium}
+        set_cached_user_permissions(user_id, permissions)
+        
+        debug_log_to_file(f"PREMIUM_CHECK: User {user_id}, Premium: {is_premium} (cached)")
+        return is_premium
     
     async def process_text_file(self, content: bytes, filename: str) -> str:
         """テキストファイルの処理"""
