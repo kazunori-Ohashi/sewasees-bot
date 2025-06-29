@@ -207,9 +207,11 @@ class UnsupportedFileType(Exception):
     """サポートされていないファイル形式例外"""
     pass
 
-# --- Persistent caches replacing Redis when unavailable ---
-RATE_LIMIT_CACHE = SyncDictJSON.create("cache/rate_limit.json")
-INSERT_MODE_CACHE = SyncDictJSON.create("cache/insert_mode.json")
+# --- In-memory caches with asyncio locks for thread safety ---
+# Fixed: Replace SyncDictJSON with standard dicts + asyncio.Lock to prevent race conditions
+RATE_LIMIT_CACHE = SyncDictJSON.create("cache/rate_limit.json")  # Keep for rate limiting
+INSERT_MODE_CACHE = {}  # Simple dict with asyncio.Lock protection
+insert_cache_lock = None  # Will be initialized in main after event loop starts
 # --- Persistent cache for email history (resend_result) ---
 EMAIL_HISTORY_CACHE = SyncDictJSON.create("cache/email_history.json")
 
@@ -442,14 +444,16 @@ class TDDCog(commands.Cog):
                 self.bot.redis_client.expire(insert_key, 300)  # 5分で期限切れ
                 debug_log_to_file(f"INSERT_COMMAND: Set Redis cache for user {user_id}, key: {insert_key}")
             else:
-                debug_log_to_file(f"INSERT_COMMAND: Cache before write: {dict(INSERT_MODE_CACHE)}")
-                cache_entry = {"style": "md", "timestamp": timestamp}
-                INSERT_MODE_CACHE[insert_key] = cache_entry
-                # 書き込み後の実際の状態をログ出力
-                actual_entry = INSERT_MODE_CACHE.get(insert_key)
-                debug_log_to_file(f"INSERT_COMMAND: Cache after write - key: {insert_key}, entry: {actual_entry}")
-                debug_log_to_file(f"INSERT_COMMAND: Full cache state: {dict(INSERT_MODE_CACHE)}")
-                debug_log_to_file(f"INSERT_COMMAND: Set local cache for user {user_id}, cache_size: {len(INSERT_MODE_CACHE)}")
+                # Use asyncio.Lock to prevent race conditions with INSERT_MODE_CACHE
+                async with insert_cache_lock:
+                    debug_log_to_file(f"INSERT_COMMAND: Cache before write: {dict(INSERT_MODE_CACHE)}")
+                    cache_entry = {"style": "md", "timestamp": timestamp}
+                    INSERT_MODE_CACHE[insert_key] = cache_entry
+                    # 書き込み後の実際の状態をログ出力
+                    actual_entry = INSERT_MODE_CACHE.get(insert_key)
+                    debug_log_to_file(f"INSERT_COMMAND: Cache after write - key: {insert_key}, entry: {actual_entry}")
+                    debug_log_to_file(f"INSERT_COMMAND: Full cache state: {dict(INSERT_MODE_CACHE)}")
+                    debug_log_to_file(f"INSERT_COMMAND: Set local cache for user {user_id}, cache_size: {len(INSERT_MODE_CACHE)}")
             
             # Rate limit対策: followupメッセージを送信しない
             # ユーザーには次のメッセージでinsertモードが有効になったことを通知
@@ -1098,6 +1102,10 @@ class TDDBot(commands.Bot):
         # OpenAI設定
         self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         
+        # asyncio.Lock for INSERT_MODE_CACHE to prevent race conditions
+        global insert_cache_lock
+        insert_cache_lock = asyncio.Lock()
+        
         # Redis設定: Redisは使用せず、常にNone
         self.redis_client = None
         # insertモード管理用 (Redisベース)
@@ -1124,22 +1132,25 @@ class TDDBot(commands.Bot):
         else:
             key = f"insert_mode:{user_id}"
             debug_log_to_file(f"ON_MESSAGE: Checking local cache for user {user_id}, key: {key}")
-            debug_log_to_file(f"ON_MESSAGE: Cache contents: {dict(INSERT_MODE_CACHE)}")
-            debug_log_to_file(f"ON_MESSAGE: Cache size: {len(INSERT_MODE_CACHE)}")
             
-            entry = INSERT_MODE_CACHE.get(key)
-            if entry:
-                insert_mode_entry = entry
-                logger.info(f"INSERT: Found local insert mode for user {user_id}")
-                debug_log_to_file(f"ON_MESSAGE: Found local insert mode for user {user_id}, entry: {entry}")
-                try:
-                    del INSERT_MODE_CACHE[key]
-                    debug_log_to_file(f"ON_MESSAGE: Deleted cache entry, remaining cache size: {len(INSERT_MODE_CACHE)}")
-                except Exception as e:
-                    logger.error(f"INSERT: Failed to delete cache entry: {e}")
-                    debug_log_to_file(f"ON_MESSAGE: Failed to delete cache entry: {e}")
-            else:
-                debug_log_to_file(f"ON_MESSAGE: No local insert mode for user {user_id}, key: {key}")
+            # Use asyncio.Lock to prevent race conditions with INSERT_MODE_CACHE
+            async with insert_cache_lock:
+                debug_log_to_file(f"ON_MESSAGE: Cache contents: {dict(INSERT_MODE_CACHE)}")
+                debug_log_to_file(f"ON_MESSAGE: Cache size: {len(INSERT_MODE_CACHE)}")
+                
+                entry = INSERT_MODE_CACHE.get(key)
+                if entry:
+                    insert_mode_entry = entry
+                    logger.info(f"INSERT: Found local insert mode for user {user_id}")
+                    debug_log_to_file(f"ON_MESSAGE: Found local insert mode for user {user_id}, entry: {entry}")
+                    try:
+                        del INSERT_MODE_CACHE[key]
+                        debug_log_to_file(f"ON_MESSAGE: Deleted cache entry, remaining cache size: {len(INSERT_MODE_CACHE)}")
+                    except Exception as e:
+                        logger.error(f"INSERT: Failed to delete cache entry: {e}")
+                        debug_log_to_file(f"ON_MESSAGE: Failed to delete cache entry: {e}")
+                else:
+                    debug_log_to_file(f"ON_MESSAGE: No local insert mode for user {user_id}, key: {key}")
                 
         if insert_mode_entry:
             logger.info(f"INSERT: Processing insert for user {user_id}")
