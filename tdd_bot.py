@@ -438,10 +438,32 @@ class TDDCog(commands.Cog):
         include_tldr="TLDR（要約）も含めて生成する"
     )
     async def article_command(self, interaction: discord.Interaction, file: discord.Attachment, style: str = "prep", include_tldr: bool = False):
+        # 重複実行防止チェック
+        user_id = str(interaction.user.id)
+        processing_key = f"processing:{user_id}"
+        
+        if processing_key in RATE_LIMIT_CACHE:
+            try:
+                await interaction.response.send_message("⚠️ 既に処理中です。完了をお待ちください。", ephemeral=True)
+            except:
+                pass
+            return
+            
+        # 処理開始フラグ設定
+        RATE_LIMIT_CACHE[processing_key] = True
+        
         try:
+            # interaction が既に応答済みかチェック
+            if interaction.response.is_done():
+                logger.warning("Interaction already responded to")
+                return
+                
             await interaction.response.defer()
         except discord.errors.NotFound:
-            logger.error("Interaction expired before defer could be called")
+            logger.error(f"Interaction expired before defer (user: {interaction.user.id})")
+            return
+        except discord.errors.InteractionResponded:
+            logger.warning(f"Interaction already responded (user: {interaction.user.id})")
             return
         except Exception as e:
             logger.error(f"Failed to defer interaction: {e}")
@@ -632,6 +654,10 @@ class TDDCog(commands.Cog):
                 await interaction.response.send_message(embed=embed)
             else:
                 await interaction.followup.send(embed=embed)
+        finally:
+            # 処理完了フラグをクリア
+            if processing_key in RATE_LIMIT_CACHE:
+                del RATE_LIMIT_CACHE[processing_key]
 
     @discord.app_commands.command(name="usage", description="本日の使用回数を確認")
     async def usage_command(self, interaction: discord.Interaction):
@@ -670,7 +696,36 @@ class TDDCog(commands.Cog):
         file="要約したいファイル (テキスト、PDF、音声、動画) ※8MB以下"
     )
     async def tldr_command(self, interaction: discord.Interaction, file: discord.Attachment):
-        await interaction.response.defer()
+        # 重複実行防止チェック
+        user_id = str(interaction.user.id)
+        processing_key = f"tldr_processing:{user_id}"
+        
+        if processing_key in RATE_LIMIT_CACHE:
+            try:
+                await interaction.response.send_message("⚠️ 既にTLDR処理中です。完了をお待ちください。", ephemeral=True)
+            except:
+                pass
+            return
+            
+        # 処理開始フラグ設定
+        RATE_LIMIT_CACHE[processing_key] = True
+        
+        try:
+            # interaction が既に応答済みかチェック
+            if interaction.response.is_done():
+                logger.warning("TLDR Interaction already responded to")
+                return
+                
+            await interaction.response.defer()
+        except discord.errors.NotFound:
+            logger.error(f"TLDR Interaction expired before defer (user: {interaction.user.id})")
+            return
+        except discord.errors.InteractionResponded:
+            logger.warning(f"TLDR Interaction already responded (user: {interaction.user.id})")
+            return
+        except Exception as e:
+            logger.error(f"Failed to defer TLDR interaction: {e}")
+            return
         try:
             if not self.bot.is_premium_user(interaction.user):
                 try:
@@ -808,6 +863,10 @@ class TDDCog(commands.Cog):
                 await interaction.response.send_message(embed=embed)
             else:
                 await interaction.followup.send(embed=embed)
+        finally:
+            # 処理完了フラグをクリア
+            if processing_key in RATE_LIMIT_CACHE:
+                del RATE_LIMIT_CACHE[processing_key]
 
     @discord.app_commands.command(name="register_email", description="メールアドレスを登録し、認証メールを送信します")
     @discord.app_commands.describe(email="登録したいメールアドレス")
