@@ -400,33 +400,35 @@ class TDDCog(commands.Cog):
         logger.info(f"INSERT: Starting command for user {user_id}")
         debug_log_to_file(f"INSERT_COMMAND: Starting for user {user_id}")
         
-        # 重複実行防止チェック（即座応答前に実行）
-        if processing_key in RATE_LIMIT_CACHE:
-            debug_log_to_file(f"INSERT_COMMAND: User {user_id} already processing, rejecting immediately")
-            try:
-                await interaction.response.send_message("⚠️ 既に処理中です。完了をお待ちください。", ephemeral=True)
-            except:
-                pass  # Rate limit時は無視
-            return
-        
-        # 即座に完了応答（Rate Limit回避のため1回のAPI呼び出しのみ）
+        # Discord標準パターン: 即座にdefer（3秒以内保証）
         try:
-            await interaction.response.send_message("📝 次の発言をマークダウン整形します", ephemeral=True)
-            debug_log_to_file(f"INSERT_COMMAND: Immediate response sent to user {user_id}")
+            await interaction.response.defer(ephemeral=True)
+            debug_log_to_file(f"INSERT_COMMAND: Defer successful for user {user_id}")
         except discord.errors.NotFound:
-            logger.error(f"Insert Interaction expired before response (user: {interaction.user.id})")
-            debug_log_to_file(f"INSERT_COMMAND: Interaction expired before response for user {user_id}")
+            logger.error(f"Insert Interaction expired before defer (user: {interaction.user.id})")
+            debug_log_to_file(f"INSERT_COMMAND: Interaction expired before defer for user {user_id}")
             return
         except discord.errors.InteractionResponded:
             logger.warning(f"Insert Interaction already responded (user: {interaction.user.id})")
             debug_log_to_file(f"INSERT_COMMAND: Interaction already responded for user {user_id}")
             return
         except Exception as e:
-            logger.error(f"Failed to send Insert response: {e}")
-            debug_log_to_file(f"INSERT_COMMAND: Failed to send response for user {user_id}: {e}")
+            logger.error(f"Failed to defer Insert interaction: {e}")
+            debug_log_to_file(f"INSERT_COMMAND: Failed to defer for user {user_id}: {e}")
             return
         
-        # 応答成功後に処理フラグ設定
+        # defer成功後にバックグラウンド処理（時間制限なし）
+        
+        # 重複実行防止チェック
+        if processing_key in RATE_LIMIT_CACHE:
+            debug_log_to_file(f"INSERT_COMMAND: User {user_id} already processing, rejecting")
+            try:
+                await interaction.followup.send("⚠️ 既に処理中です。完了をお待ちください。", ephemeral=True)
+            except:
+                pass  # エラー時は無音
+            return
+        
+        # 処理フラグ設定
         RATE_LIMIT_CACHE[processing_key] = True
         debug_log_to_file(f"INSERT_COMMAND: Set processing flag for user {user_id}")
         
@@ -456,6 +458,14 @@ class TDDCog(commands.Cog):
                     debug_log_to_file(f"INSERT_COMMAND: Set local cache for user {user_id}, cache_size: {len(INSERT_MODE_CACHE)}")
             
             debug_log_to_file(f"INSERT_COMMAND: Insert mode activated for user {user_id}")
+            
+            # Discord標準パターン: followupで完了通知
+            try:
+                await interaction.followup.send("📝 次の発言をマークダウン整形します", ephemeral=True)
+                debug_log_to_file(f"INSERT_COMMAND: Sent followup notification for user {user_id}")
+            except Exception as e:
+                debug_log_to_file(f"INSERT_COMMAND: Failed to send followup: {e}")
+                # followup失敗でも機能は有効
             
             # 成功時のみprocessing_keyをクリア
             try:
