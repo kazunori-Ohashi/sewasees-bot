@@ -911,6 +911,17 @@ class TDDCog(commands.Cog):
                         
                         # メール送信成功をメイン結果embedに統合
                         embed.add_field(name="📧 メール送信", value="✅ 送信完了", inline=True)
+                        
+                        # Insertコマンドと同様のユーザー通知を追加（Rate Limiting対策で遅延あり）
+                        try:
+                            import random
+                            # 短い遅延でメッセージ送信（Rate Limiting回避）
+                            await asyncio.sleep(random.uniform(1, 3))
+                            await interaction.followup.send("📧 記事をメールで送信しました（添付ファイル付き）", ephemeral=True)
+                            debug_log_to_file(f"ARTICLE: Sent email success notification to user {user_id}")
+                        except Exception as e:
+                            debug_log_to_file(f"ARTICLE: Failed to send email success notification: {e}")
+                            # 通知失敗でもメイン処理は継続
                     else:
                         # メール未登録の理由を詳細ログで記録
                         if not recipient:
