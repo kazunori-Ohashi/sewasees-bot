@@ -149,7 +149,7 @@ def cleanup_old_files():
 load_dotenv()
 
 # ログ設定
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # --- 依存性チェック ---
@@ -1082,11 +1082,15 @@ class TDDBot(commands.Bot):
         self.redis_client = None
         # insertモード管理用 (Redisベース)
     async def on_message(self, message):
+        user_id = str(message.author.id)
+        logger.debug(f"🔧 ON_MESSAGE: Received message from user {user_id}, bot={message.author.bot}, self={message.author == self.user}")
+        
         # 通常のBot/ユーザーのメッセージは無視
         if message.author == self.user or message.author.bot:
+            logger.debug(f"🔧 ON_MESSAGE: Ignoring message (self={message.author == self.user}, bot={message.author.bot})")
             return
 
-        user_id = str(message.author.id)
+        logger.debug(f"🔧 ON_MESSAGE: Processing message from user {user_id}, cache size: {len(INSERT_MODE_CACHE)}")
         insert_mode_entry = None
         
         # INSERT_MODE_CACHE の確認
@@ -1101,16 +1105,21 @@ class TDDBot(commands.Bot):
                 logger.debug(f"🔧 ON_MESSAGE: No Redis insert mode for user {user_id}")
         else:
             key = f"insert_mode:{user_id}"
+            # キャッシュの全内容をデバッグ出力
+            cache_keys = list(INSERT_MODE_CACHE.keys())
+            logger.debug(f"🔧 ON_MESSAGE: Cache keys: {cache_keys}")
+            
             entry = INSERT_MODE_CACHE.get(key)
             if entry:
                 insert_mode_entry = entry
+                logger.info(f"🔧 ON_MESSAGE: Found local insert mode for user {user_id}, entry: {entry}")
                 try:
                     del INSERT_MODE_CACHE[key]
-                    logger.info(f"🔧 ON_MESSAGE: Found local insert mode for user {user_id}, remaining cache size: {len(INSERT_MODE_CACHE)}")
+                    logger.info(f"🔧 ON_MESSAGE: Deleted cache entry, remaining cache size: {len(INSERT_MODE_CACHE)}")
                 except Exception as e:
                     logger.warning(f"🔧 ON_MESSAGE: Failed to delete cache entry: {e}")
             else:
-                logger.debug(f"🔧 ON_MESSAGE: No local insert mode for user {user_id}, cache size: {len(INSERT_MODE_CACHE)}")
+                logger.debug(f"🔧 ON_MESSAGE: No local insert mode for user {user_id}, cache size: {len(INSERT_MODE_CACHE)}, looking for key: {key}")
                 
         if insert_mode_entry:
             logger.info(f"🔧 ON_MESSAGE: Processing insert for user {user_id}, content length: {len(message.content)}")
@@ -1182,6 +1191,7 @@ class TDDBot(commands.Bot):
                 await message.channel.send("❌ テキスト整形中にエラーが発生しました。", delete_after=30)
         # Prefixed commands should still work when on_message is overridden
         await self.process_commands(message)
+        logger.debug(f"🔧 ON_MESSAGE: Finished processing message from user {user_id}")
     
     async def on_ready(self):
         """Bot 起動時処理（接続確認＋モデレーターログのみ）"""
