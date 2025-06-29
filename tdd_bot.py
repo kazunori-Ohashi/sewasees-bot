@@ -380,50 +380,89 @@ class TDDCog(commands.Cog):
         """
         /insert スラッシュコマンド: 次の発言をマークダウン整形モードにする
         """
-        # Defer initial response to avoid Unknown interaction error
-        await interaction.response.defer(ephemeral=True)
-        from datetime import datetime
+        # 最優先: 即座にdefer()を実行
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except discord.errors.NotFound:
+            logger.error(f"Insert Interaction expired before defer (user: {interaction.user.id})")
+            return
+        except discord.errors.InteractionResponded:
+            logger.warning(f"Insert Interaction already responded (user: {interaction.user.id})")
+            return
+        except Exception as e:
+            logger.error(f"Failed to defer Insert interaction: {e}")
+            return
+        
+        # defer成功後に重複実行防止チェック
         user_id = str(interaction.user.id)
-        if self.bot.redis_client:
-            key = f"insert_mode:{user_id}"
-            data = {"style": "md", "timestamp": datetime.now().isoformat()}
-            self.bot.redis_client.hset(key, mapping=data)
-            self.bot.redis_client.expire(key, 300)  # 5分で期限切れ
-        else:
-            INSERT_MODE_CACHE[f"insert_mode:{user_id}"] = {"style": "md", "timestamp": datetime.now().isoformat()}
-        await interaction.followup.send("📝 次の発言をマークダウン整形します。続けてメッセージを送信してください。", ephemeral=True)
+        processing_key = f"insert_processing:{user_id}"
+        
+        if processing_key in RATE_LIMIT_CACHE:
+            try:
+                await interaction.followup.send("⚠️ 既にinsert処理中です。完了をお待ちください。", ephemeral=True)
+            except:
+                pass
+            return
+            
+        # 処理開始フラグ設定
+        RATE_LIMIT_CACHE[processing_key] = True
+        
+        try:
+            from datetime import datetime
+            if self.bot.redis_client:
+                key = f"insert_mode:{user_id}"
+                data = {"style": "md", "timestamp": datetime.now().isoformat()}
+                self.bot.redis_client.hset(key, mapping=data)
+                self.bot.redis_client.expire(key, 300)  # 5分で期限切れ
+            else:
+                INSERT_MODE_CACHE[f"insert_mode:{user_id}"] = {"style": "md", "timestamp": datetime.now().isoformat()}
+            await interaction.followup.send("📝 次の発言をマークダウン整形します。続けてメッセージを送信してください。", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Insert command error: {e}")
+            # Rate limit防止のため、エラー時のfollowup送信は省略
+        finally:
+            # 処理完了フラグをクリア
+            if processing_key in RATE_LIMIT_CACHE:
+                del RATE_LIMIT_CACHE[processing_key]
     @discord.app_commands.command(name="help", description="このBotの使い方一覧を表示")
     async def help_command(self, interaction: discord.Interaction):
-        embed = discord.Embed(
-            title="📚 Botの使い方",
-            description="このBotで使用できるコマンドの一覧です。",
-            color=discord.Color.blue()
-        )
-        embed.add_field(
-            name="/article",
-            value="📄 ファイル（テキスト、PDF、音声、動画）からMarkdown記事を生成\n"
-                  "⚠️ ファイルサイズ制限: 8MB以下\n"
-                  "オプション: `style=prep|pas`, `include_tldr=true|false`",
-            inline=False
-        )
-        embed.add_field(
-            name="/tldr",
-            value="💡 ファイルからTLDR（要約）を生成（テキスト、PDF、音声、動画対応）\n"
-                  "⚠️ ファイルサイズ制限: 8MB以下",
-            inline=False
-        )
-        embed.add_field(
-            name="/insert",
-            value="✍️ /insertエンターキーで待ち受けモードに入ります。 次の入力発言をMarkdown整形します（テキスト入力のみ対応）このコマンドは音声入力によるテキストの整形を前提としています",
-            inline=False
-        )
-        embed.add_field(
-            name="🎤 リアクションで文字起こし",
-            value="音声・動画ファイルに 🎤 をリアクションでつけると自動で文字起こしします。",
-            inline=False
-        )
-        embed.set_footer(text="開発中: 他にもコマンドを追加予定です！")
-        await interaction.response.send_message(embed=embed)
+        try:
+            if interaction.response.is_done():
+                return
+                
+            embed = discord.Embed(
+                title="📚 Botの使い方",
+                description="このBotで使用できるコマンドの一覧です。",
+                color=discord.Color.blue()
+            )
+            embed.add_field(
+                name="/article",
+                value="📄 ファイル（テキスト、PDF、音声、動画）からMarkdown記事を生成\n"
+                      "⚠️ ファイルサイズ制限: 8MB以下\n"
+                      "オプション: `style=prep|pas`, `include_tldr=true|false`",
+                inline=False
+            )
+            embed.add_field(
+                name="/tldr",
+                value="💡 ファイルからTLDR（要約）を生成（テキスト、PDF、音声、動画対応）\n"
+                      "⚠️ ファイルサイズ制限: 8MB以下",
+                inline=False
+            )
+            embed.add_field(
+                name="/insert",
+                value="✍️ /insertエンターキーで待ち受けモードに入ります。 次の入力発言をMarkdown整形します（テキスト入力のみ対応）このコマンドは音声入力によるテキストの整形を前提としています",
+                inline=False
+            )
+            embed.add_field(
+                name="🎤 リアクションで文字起こし",
+                value="音声・動画ファイルに 🎤 をリアクションでつけると自動で文字起こしします。",
+                inline=False
+            )
+            embed.set_footer(text="開発中: 他にもコマンドを追加予定です！")
+            await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            logger.error(f"Help command error: {e}")
+            # Rate limit防止のため、エラー応答は省略
 
     @discord.app_commands.choices(
         style=[
@@ -438,26 +477,8 @@ class TDDCog(commands.Cog):
         include_tldr="TLDR（要約）も含めて生成する"
     )
     async def article_command(self, interaction: discord.Interaction, file: discord.Attachment, style: str = "prep", include_tldr: bool = False):
-        # 重複実行防止チェック
-        user_id = str(interaction.user.id)
-        processing_key = f"processing:{user_id}"
-        
-        if processing_key in RATE_LIMIT_CACHE:
-            try:
-                await interaction.response.send_message("⚠️ 既に処理中です。完了をお待ちください。", ephemeral=True)
-            except:
-                pass
-            return
-            
-        # 処理開始フラグ設定
-        RATE_LIMIT_CACHE[processing_key] = True
-        
+        # 最優先: 即座にdefer()を実行
         try:
-            # interaction が既に応答済みかチェック
-            if interaction.response.is_done():
-                logger.warning("Interaction already responded to")
-                return
-                
             await interaction.response.defer()
         except discord.errors.NotFound:
             logger.error(f"Interaction expired before defer (user: {interaction.user.id})")
@@ -469,12 +490,26 @@ class TDDCog(commands.Cog):
             logger.error(f"Failed to defer interaction: {e}")
             return
         
-        # 処理開始を通知
+        # defer成功後に重複実行防止チェック
+        user_id = str(interaction.user.id)
+        processing_key = f"processing:{user_id}"
+        
+        if processing_key in RATE_LIMIT_CACHE:
+            try:
+                await interaction.followup.send("⚠️ 既に処理中です。完了をお待ちください。", ephemeral=True)
+            except:
+                pass
+            return
+            
+        # 処理開始フラグ設定
+        RATE_LIMIT_CACHE[processing_key] = True
+        
+        # 処理開始を通知（失敗してもメイン処理は継続）
         try:
             await interaction.followup.send("📝 ファイル処理を開始しています...", ephemeral=True)
         except Exception as e:
-            logger.error(f"Failed to send followup message: {e}")
-            return
+            logger.warning(f"Failed to send followup message, continuing: {e}")
+            # followup失敗時も処理を継続
         
         try:
             if not self.bot.is_premium_user(interaction.user):
@@ -583,7 +618,10 @@ class TDDCog(commands.Cog):
                             await send_email(recipient, subject_email, body_email, attachments)
                         except Exception as e:
                             logger.error(f"Failed to send email: {e}")
-                            await interaction.followup.send("⚠️ メール送信に失敗しましたが、記事は正常に生成されました。", ephemeral=True)
+                            try:
+                                await interaction.followup.send("⚠️ メール送信に失敗しましたが、記事は正常に生成されました。", ephemeral=True)
+                            except:
+                                pass  # Rate limit時はサイレント
                     
                         # 一時ファイル保存 (14日間)
                         temp_file_path = save_temp_file(final_content.encode("utf-8"), filename, user_id)
@@ -601,9 +639,15 @@ class TDDCog(commands.Cog):
                         }
                         EMAIL_HISTORY_CACHE[key] = email_data
                         
-                        await interaction.followup.send("📧 記事をメールで送信しました", ephemeral=True)
+                        try:
+                            await interaction.followup.send("📧 記事をメールで送信しました", ephemeral=True)
+                        except:
+                            pass  # Rate limit時はサイレント
                     else:
-                        await interaction.followup.send("❌ メール送信先が登録されていません。`/register_email` でメールアドレスを登録してください。", ephemeral=True)
+                        try:
+                            await interaction.followup.send("❌ メール送信先が登録されていません。`/register_email` でメールアドレスを登録してください。", ephemeral=True)
+                        except:
+                            pass  # Rate limit時はサイレント
                     # --- END PATCH ---
                     await self.bot.log_to_moderator(
                         title="📄 Article Generated",
@@ -689,33 +733,21 @@ class TDDCog(commands.Cog):
                     description="使用状況の確認中にエラーが発生しました",
                     color=discord.Color.red()
                 )
-        await interaction.response.send_message(embed=embed)
+        try:
+            if interaction.response.is_done():
+                return
+            await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            logger.error(f"Usage command response error: {e}")
+            # Rate limit防止のため、エラー応答は省略
 
     @discord.app_commands.command(name="tldr", description="ファイルから要約（TLDR）を生成（8MB以下）")
     @discord.app_commands.describe(
         file="要約したいファイル (テキスト、PDF、音声、動画) ※8MB以下"
     )
     async def tldr_command(self, interaction: discord.Interaction, file: discord.Attachment):
-        # 重複実行防止チェック
-        user_id = str(interaction.user.id)
-        processing_key = f"tldr_processing:{user_id}"
-        
-        if processing_key in RATE_LIMIT_CACHE:
-            try:
-                await interaction.response.send_message("⚠️ 既にTLDR処理中です。完了をお待ちください。", ephemeral=True)
-            except:
-                pass
-            return
-            
-        # 処理開始フラグ設定
-        RATE_LIMIT_CACHE[processing_key] = True
-        
+        # 最優先: 即座にdefer()を実行
         try:
-            # interaction が既に応答済みかチェック
-            if interaction.response.is_done():
-                logger.warning("TLDR Interaction already responded to")
-                return
-                
             await interaction.response.defer()
         except discord.errors.NotFound:
             logger.error(f"TLDR Interaction expired before defer (user: {interaction.user.id})")
@@ -726,6 +758,20 @@ class TDDCog(commands.Cog):
         except Exception as e:
             logger.error(f"Failed to defer TLDR interaction: {e}")
             return
+        
+        # defer成功後に重複実行防止チェック
+        user_id = str(interaction.user.id)
+        processing_key = f"tldr_processing:{user_id}"
+        
+        if processing_key in RATE_LIMIT_CACHE:
+            try:
+                await interaction.followup.send("⚠️ 既にTLDR処理中です。完了をお待ちください。", ephemeral=True)
+            except:
+                pass
+            return
+            
+        # 処理開始フラグ設定
+        RATE_LIMIT_CACHE[processing_key] = True
         try:
             if not self.bot.is_premium_user(interaction.user):
                 try:
@@ -808,7 +854,10 @@ class TDDCog(commands.Cog):
                         await send_email(recipient, subject_email, body_email)
                     except Exception as e:
                         logger.error(f"Failed to send TLDR email: {e}")
-                        await interaction.followup.send("⚠️ メール送信に失敗しましたが、TLDR は正常に生成されました。", ephemeral=True)
+                        try:
+                            await interaction.followup.send("⚠️ メール送信に失敗しましたが、TLDR は正常に生成されました。", ephemeral=True)
+                        except:
+                            pass  # Rate limit時はサイレント
                 
                     # Email history cache saving
                     key = f"last_email:{user_id}:{BOT_ID}"
@@ -819,9 +868,15 @@ class TDDCog(commands.Cog):
                     }
                     EMAIL_HISTORY_CACHE[key] = email_data
                     
-                    await interaction.followup.send("📧 要約をメールで送信しました", ephemeral=True)
+                    try:
+                        await interaction.followup.send("📧 要約をメールで送信しました", ephemeral=True)
+                    except:
+                        pass  # Rate limit時はサイレント
                 else:
-                    await interaction.followup.send("❌ メール送信先が登録されていません。`/register_email` でメールアドレスを登録してください。", ephemeral=True)
+                    try:
+                        await interaction.followup.send("❌ メール送信先が登録されていません。`/register_email` でメールアドレスを登録してください。", ephemeral=True)
+                    except:
+                        pass  # Rate limit時はサイレント
                 # --- END PATCH ---
                 await self.bot.log_to_moderator(
                     title="📋 TLDR Generated",
