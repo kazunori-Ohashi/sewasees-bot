@@ -16,7 +16,6 @@ import json
 import subprocess
 import mimetypes
 from typing import Optional, Tuple
-import redis
 from openai import OpenAI
 from dotenv import load_dotenv
 import logging
@@ -170,21 +169,6 @@ def check_dependencies():
     except (FileNotFoundError, subprocess.TimeoutExpired):
         errors.append("ffmpeg is not installed or not in PATH")
     
-    # Redis チェック
-    try:
-        redis_client = redis.Redis(
-            host=os.getenv('REDIS_HOST', 'localhost'),
-            port=int(os.getenv('REDIS_PORT', 6379)),
-            db=int(os.getenv('REDIS_DB', 0)),
-            decode_responses=True,
-            socket_connect_timeout=3
-        )
-        redis_client.ping()
-        logger.info("✅ Redis connection OK")
-    except (redis.RedisError, ConnectionError, OSError):
-        errors.append("Redis server is not available (rate limiting will be disabled)")
-        logger.warning("⚠️ Redis not available - continuing without rate limiting")
-    
     # OpenAI API キーチェック
     openai_key = os.getenv('OPENAI_API_KEY')
     if not openai_key or openai_key == 'your_openai_api_key_here':
@@ -197,10 +181,8 @@ def check_dependencies():
     
     if errors:
         error_msg = "❌ Dependency check failed:\n" + "\n".join(f"  - {error}" for error in errors)
-        if any("Redis" not in error for error in errors):
-            raise DependencyError(error_msg)
-        else:
-            logger.warning(error_msg)
+        logger.warning(error_msg)
+        raise DependencyError(error_msg)
     else:
         logger.info("✅ All dependencies check passed")
 
@@ -913,18 +895,8 @@ class TDDBot(commands.Bot):
         # OpenAI設定
         self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         
-        # Redis設定
-        try:
-            self.redis_client = redis.Redis(
-                host=os.getenv('REDIS_HOST', 'localhost'),
-                port=int(os.getenv('REDIS_PORT', 6379)),
-                db=int(os.getenv('REDIS_DB', 0)),
-                decode_responses=True
-            )
-            self.redis_client.ping()
-        except redis.RedisError:
-            logger.warning("Redis not available, rate limiting disabled")
-            self.redis_client = None
+        # Redis設定: Redisは使用せず、常にNone
+        self.redis_client = None
         # insertモード管理用 (Redisベース)
     async def on_message(self, message):
         # 通常のBot/ユーザーのメッセージは無視
