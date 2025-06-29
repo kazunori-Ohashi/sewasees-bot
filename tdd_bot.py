@@ -149,7 +149,7 @@ def cleanup_old_files():
 load_dotenv()
 
 # ログ設定
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- 依存性チェック ---
@@ -383,12 +383,11 @@ class TDDCog(commands.Cog):
         user_id = str(interaction.user.id)
         processing_key = f"insert_processing:{user_id}"
         
-        logger.info(f"🔧 INSERT: Starting command for user {user_id}")
+        logger.info(f"INSERT: Starting command for user {user_id}")
         
         # 最優先: 即座にdefer()を実行
         try:
             await interaction.response.defer(ephemeral=True)
-            logger.info(f"🔧 INSERT: Defer successful for user {user_id}")
         except discord.errors.NotFound:
             logger.error(f"Insert Interaction expired before defer (user: {interaction.user.id})")
             return
@@ -401,22 +400,14 @@ class TDDCog(commands.Cog):
         
         # 重複実行防止チェック
         if processing_key in RATE_LIMIT_CACHE:
-            logger.warning(f"🔧 INSERT: User {user_id} already processing, rejecting")
             try:
-                await interaction.followup.send("⚠️ 既にinsert処理中です。完了をお待ちください。", ephemeral=True)
-                logger.info(f"🔧 INSERT: Sent duplicate warning to user {user_id}")
-            except Exception as e:
-                logger.warning(f"🔧 INSERT: Failed to send duplicate warning: {e}")
-                # Rate limit時でもユーザーには何らかの形で伝える
-                try:
-                    await interaction.followup.send("⚠️ 処理中です", ephemeral=True)
-                except:
-                    pass
+                await interaction.followup.send("⚠️ 既に処理中です。完了をお待ちください。", ephemeral=True)
+            except:
+                pass  # Rate limit時は無視
             return
             
         # 処理開始フラグ設定
         RATE_LIMIT_CACHE[processing_key] = True
-        logger.info(f"🔧 INSERT: Set processing flag for user {user_id}")
         
         try:
             from datetime import datetime
@@ -427,21 +418,19 @@ class TDDCog(commands.Cog):
                 data = {"style": "md", "timestamp": timestamp}
                 self.bot.redis_client.hset(insert_key, mapping=data)
                 self.bot.redis_client.expire(insert_key, 300)  # 5分で期限切れ
-                logger.info(f"🔧 INSERT: Set Redis cache for user {user_id}")
             else:
                 INSERT_MODE_CACHE[insert_key] = {"style": "md", "timestamp": timestamp}
-                logger.info(f"🔧 INSERT: Set local cache for user {user_id}, cache size: {len(INSERT_MODE_CACHE)}")
             
             try:
                 await interaction.followup.send("📝 次の発言をマークダウン整形します。続けてメッセージを送信してください。", ephemeral=True)
-                logger.info(f"🔧 INSERT: Sent followup message to user {user_id}")
-            except Exception as e:
-                logger.warning(f"🔧 INSERT: Failed to send followup message: {e}")
-                # followup失敗時でもINSERT_MODE_CACHEは設定済みなので処理は継続
+            except:
+                pass  # Rate limit時は無視
             
             # 成功時のみprocessing_keyをクリア
-            if processing_key in RATE_LIMIT_CACHE:
+            try:
                 del RATE_LIMIT_CACHE[processing_key]
+            except:
+                pass
                 logger.info(f"🔧 INSERT: Cleared processing flag for user {user_id}")
                 
         except Exception as e:
@@ -1082,15 +1071,11 @@ class TDDBot(commands.Bot):
         self.redis_client = None
         # insertモード管理用 (Redisベース)
     async def on_message(self, message):
-        user_id = str(message.author.id)
-        logger.debug(f"🔧 ON_MESSAGE: Received message from user {user_id}, bot={message.author.bot}, self={message.author == self.user}")
-        
-        # 通常のBot/ユーザーのメッセージは無視
-        if message.author == self.user or message.author.bot:
-            logger.debug(f"🔧 ON_MESSAGE: Ignoring message (self={message.author == self.user}, bot={message.author.bot})")
+        # CRITICAL: Immediately filter out all bot messages to prevent feedback loops
+        if message.author.bot or message.author == self.user:
             return
-
-        logger.debug(f"🔧 ON_MESSAGE: Processing message from user {user_id}, cache size: {len(INSERT_MODE_CACHE)}")
+            
+        user_id = str(message.author.id)
         insert_mode_entry = None
         
         # INSERT_MODE_CACHE の確認
@@ -1106,23 +1091,17 @@ class TDDBot(commands.Bot):
         else:
             key = f"insert_mode:{user_id}"
             # キャッシュの全内容をデバッグ出力
-            cache_keys = list(INSERT_MODE_CACHE.keys())
-            logger.debug(f"🔧 ON_MESSAGE: Cache keys: {cache_keys}")
-            
             entry = INSERT_MODE_CACHE.get(key)
             if entry:
                 insert_mode_entry = entry
-                logger.info(f"🔧 ON_MESSAGE: Found local insert mode for user {user_id}, entry: {entry}")
+                logger.info(f"INSERT: Found local insert mode for user {user_id}")
                 try:
                     del INSERT_MODE_CACHE[key]
-                    logger.info(f"🔧 ON_MESSAGE: Deleted cache entry, remaining cache size: {len(INSERT_MODE_CACHE)}")
                 except Exception as e:
-                    logger.warning(f"🔧 ON_MESSAGE: Failed to delete cache entry: {e}")
-            else:
-                logger.debug(f"🔧 ON_MESSAGE: No local insert mode for user {user_id}, cache size: {len(INSERT_MODE_CACHE)}, looking for key: {key}")
+                    logger.error(f"INSERT: Failed to delete cache entry: {e}")
                 
         if insert_mode_entry:
-            logger.info(f"🔧 ON_MESSAGE: Processing insert for user {user_id}, content length: {len(message.content)}")
+            logger.info(f"INSERT: Processing insert for user {user_id}")
             style = insert_mode_entry.get("style", "md")
             prompt = build_prompt(message.content, style)
             
@@ -1135,17 +1114,17 @@ class TDDBot(commands.Bot):
                     ],
                     max_tokens=1200,
                     temperature=0.5,
-                    timeout=30  # 30秒タイムアウト
+                    timeout=30
                 )
                 markdown = response.choices[0].message.content
-                logger.info(f"🔧 ON_MESSAGE: OpenAI response received for user {user_id}, markdown length: {len(markdown)}")
+                logger.info(f"INSERT: OpenAI response received for user {user_id}")
                 
                 sent_msg = await message.channel.send(f"📄 整形済みMarkdown:\n```markdown\n{markdown}\n```")
                 
                 # --- Send formatted markdown via email with attachment ---
                 recipient = load_user_settings(user_id).get("verified", {}).get("email", {}).get(BOT_ID)
                 if recipient:
-                    logger.info(f"🔧 ON_MESSAGE: Sending email to {recipient} for user {user_id}")
+                    logger.info(f"INSERT: Sending email to {recipient}")
                     
                     # 添付ファイル作成
                     from datetime import datetime
@@ -1158,7 +1137,7 @@ class TDDBot(commands.Bot):
                     
                     try:
                         await send_email(recipient, subject_email, body_email, attachments)
-                        logger.info(f"🔧 ON_MESSAGE: Email sent successfully with attachment for user {user_id}")
+                        logger.info(f"INSERT: Email sent successfully")
                         
                         # 一時ファイル保存 (14日間)
                         temp_file_path = save_temp_file(markdown.encode("utf-8"), filename, user_id)
@@ -1179,19 +1158,23 @@ class TDDBot(commands.Bot):
                         await message.channel.send("📧 整形結果をメールで送信しました（添付ファイル付き）", delete_after=30)
                         
                     except Exception as e:
-                        logger.error(f"🔧 ON_MESSAGE: Failed to send insert email for user {user_id}: {e}")
+                        logger.error(f"INSERT: Failed to send email: {e}")
                         await message.channel.send("⚠️ メール送信に失敗しましたが、整形は正常に完了しました。", delete_after=30)
-                else:
-                    logger.info(f"🔧 ON_MESSAGE: No email recipient for user {user_id}")
                     # ユーザーがメールを登録していない場合は送信をスキップし、登録を促す
                     await message.channel.send("❌ メール送信先が登録されていません。`/register_email` でメールアドレスを登録してください。", delete_after=30)
                     
             except Exception as e:
-                logger.error(f"🔧 ON_MESSAGE: Failed to process insert for user {user_id}: {e}")
-                await message.channel.send("❌ テキスト整形中にエラーが発生しました。", delete_after=30)
-        # Prefixed commands should still work when on_message is overridden
-        await self.process_commands(message)
-        logger.debug(f"🔧 ON_MESSAGE: Finished processing message from user {user_id}")
+                logger.error(f"INSERT: Failed to process insert: {e}")
+                try:
+                    await message.channel.send("❌ テキスト整形中にエラーが発生しました。", delete_after=30)
+                except:
+                    pass  # Prevent cascading errors during rate limiting
+        
+        # Process commands
+        try:
+            await self.process_commands(message)
+        except:
+            pass  # Prevent cascading errors during rate limiting
     
     async def on_ready(self):
         """Bot 起動時処理（接続確認＋モデレーターログのみ）"""
