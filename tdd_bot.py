@@ -562,12 +562,21 @@ class TDDCog(commands.Cog):
         # 処理開始フラグ設定
         RATE_LIMIT_CACHE[processing_key] = True
         
-        # 処理開始を通知（失敗してもメイン処理は継続）
+        # 統合プログレス embed を作成して初期状態を送信
+        progress_embed = discord.Embed(
+            title="📝 記事生成進行状況",
+            description="ファイル処理を開始しています...",
+            color=discord.Color.blue()
+        )
+        progress_embed.add_field(name="📂 ファイル", value=f"`{file.filename}`", inline=False)
+        progress_embed.add_field(name="📊 進行状況", value="⏳ 初期化中...", inline=False)
+        
+        # 最初の進行状況を送信（失敗してもメイン処理は継続）
+        progress_message = None
         try:
-            await interaction.followup.send("📝 ファイル処理を開始しています...", ephemeral=True)
+            progress_message = await interaction.followup.send(embed=progress_embed, ephemeral=True)
         except Exception as e:
-            logger.warning(f"Failed to send followup message, continuing: {e}")
-            # followup失敗時も処理を継続
+            logger.warning(f"Failed to send initial progress message, continuing: {e}")
         
         try:
             if not self.bot.is_premium_user(interaction.user):
@@ -620,11 +629,15 @@ class TDDCog(commands.Cog):
                     await interaction.followup.send(embed=embed)
                     return
             try:
-                # ファイル処理進捗通知
-                if file_type in ["audio", "video"]:
-                    await interaction.followup.send("🎵 音声・動画ファイルを処理中です（時間がかかる場合があります）...", ephemeral=True)
-                elif file_type == "pdf":
-                    await interaction.followup.send("📄 PDFファイルを処理中です...", ephemeral=True)
+                # プログレス embed を更新（ファイル処理段階）
+                if progress_message:
+                    try:
+                        progress_embed.set_field_at(1, name="📊 進行状況", value=f"📄 {file_type.upper()}ファイル処理中...", inline=False)
+                        if file_type in ["audio", "video"]:
+                            progress_embed.add_field(name="⏰ 処理時間", value="音声・動画は時間がかかる場合があります", inline=False)
+                        await progress_message.edit(embed=progress_embed)
+                    except Exception as e:
+                        logger.warning(f"Failed to update progress embed: {e}")
                 
                 if file_type == "text":
                     content = await self.bot.process_text_file(file_content, file.filename)
@@ -637,8 +650,13 @@ class TDDCog(commands.Cog):
                 else:
                     raise ValueError(f"Unknown file type: {file_type}")
                 
-                # AI処理開始通知
-                await interaction.followup.send("🤖 AIが記事を生成中です...", ephemeral=True)
+                # プログレス embed を更新（AI処理段階）
+                if progress_message:
+                    try:
+                        progress_embed.set_field_at(1, name="📊 進行状況", value="🤖 AIが記事を生成中...", inline=False)
+                        await progress_message.edit(embed=progress_embed)
+                    except Exception as e:
+                        logger.warning(f"Failed to update AI progress: {e}")
                 article = await self.bot.generate_article(content, style)
                 final_content = article
                 if include_tldr:
@@ -676,10 +694,8 @@ class TDDCog(commands.Cog):
                             await send_email(recipient, subject_email, body_email, attachments)
                         except Exception as e:
                             logger.error(f"Failed to send email: {e}")
-                            try:
-                                await interaction.followup.send("⚠️ メール送信に失敗しましたが、記事は正常に生成されました。", ephemeral=True)
-                            except:
-                                pass  # Rate limit時はサイレント
+                            # メール送信失敗をメイン結果embedに統合
+                            embed.add_field(name="📧 メール送信", value="⚠️ 送信失敗（記事は正常生成）", inline=True)
                     
                         # 一時ファイル保存 (14日間)
                         temp_file_path = save_temp_file(final_content.encode("utf-8"), filename, user_id)
@@ -697,15 +713,11 @@ class TDDCog(commands.Cog):
                         }
                         EMAIL_HISTORY_CACHE[key] = email_data
                         
-                        try:
-                            await interaction.followup.send("📧 記事をメールで送信しました", ephemeral=True)
-                        except:
-                            pass  # Rate limit時はサイレント
+                        # メール送信成功をメイン結果embedに統合
+                        embed.add_field(name="📧 メール送信", value="✅ 送信完了", inline=True)
                     else:
-                        try:
-                            await interaction.followup.send("❌ メール送信先が登録されていません。`/register_email` でメールアドレスを登録してください。", ephemeral=True)
-                        except:
-                            pass  # Rate limit時はサイレント
+                        # メール未登録をメイン結果embedに統合
+                        embed.add_field(name="📧 メール送信", value="❌ 未登録 (`/register_email`で設定)", inline=True)
                     # --- END PATCH ---
                     await self.bot.log_to_moderator(
                         title="📄 Article Generated",
@@ -721,20 +733,58 @@ class TDDCog(commands.Cog):
                     os.unlink(tmp_file.name)
             except asyncio.TimeoutError:
                 logger.error("File processing timeout")
-                embed = discord.Embed(
-                    title="処理タイムアウト",
-                    description="ファイルの処理に時間がかかりすぎています。より小さなファイルで再試行してください。",
-                    color=discord.Color.orange()
-                )
-                await interaction.followup.send(embed=embed)
+                # プログレス embed をエラー状態に更新
+                if progress_message:
+                    try:
+                        progress_embed.title = "⏱️ 処理タイムアウト"
+                        progress_embed.description = "ファイルの処理に時間がかかりすぎています。"
+                        progress_embed.color = discord.Color.orange()
+                        progress_embed.add_field(name="💡 推奨事項", value="より小さなファイルで再試行してください", inline=False)
+                        await progress_message.edit(embed=progress_embed)
+                    except Exception as edit_error:
+                        logger.warning(f"Failed to update timeout embed: {edit_error}")
+                        # フォールバック: 新しいembedを送信
+                        timeout_embed = discord.Embed(
+                            title="⏱️ 処理タイムアウト",
+                            description="ファイルの処理に時間がかかりすぎています。より小さなファイルで再試行してください。",
+                            color=discord.Color.orange()
+                        )
+                        await interaction.followup.send(embed=timeout_embed)
+                else:
+                    # progress_messageがない場合のフォールバック
+                    timeout_embed = discord.Embed(
+                        title="⏱️ 処理タイムアウト",
+                        description="ファイルの処理に時間がかかりすぎています。より小さなファイルで再試行してください。",
+                        color=discord.Color.orange()
+                    )
+                    await interaction.followup.send(embed=timeout_embed)
             except Exception as e:
                 logger.error(f"File processing error: {e}")
-                embed = discord.Embed(
-                    title="処理エラー",
-                    description=f"ファイルの処理中にエラーが発生しました: {str(e)}",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed)
+                # プログレス embed をエラー状態に更新
+                if progress_message:
+                    try:
+                        progress_embed.title = "❌ 処理エラー"
+                        progress_embed.description = f"ファイルの処理中にエラーが発生しました"
+                        progress_embed.color = discord.Color.red()
+                        progress_embed.add_field(name="🔍 エラー詳細", value=str(e)[:100] + "..." if len(str(e)) > 100 else str(e), inline=False)
+                        await progress_message.edit(embed=progress_embed)
+                    except Exception as edit_error:
+                        logger.warning(f"Failed to update error embed: {edit_error}")
+                        # フォールバック: 新しいembedを送信
+                        error_embed = discord.Embed(
+                            title="❌ 処理エラー",
+                            description=f"ファイルの処理中にエラーが発生しました: {str(e)}",
+                            color=discord.Color.red()
+                        )
+                        await interaction.followup.send(embed=error_embed)
+                else:
+                    # progress_messageがない場合のフォールバック
+                    error_embed = discord.Embed(
+                        title="❌ 処理エラー",
+                        description=f"ファイルの処理中にエラーが発生しました: {str(e)}",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=error_embed)
                 await self.bot.log_to_moderator(
                     title="❌ Processing Error",
                     description=f"Error processing file for user {interaction.user.mention}",
