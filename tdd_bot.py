@@ -855,8 +855,29 @@ class TDDCog(commands.Cog):
                     sent_msg = await interaction.followup.send(embed=embed, file=file_obj)
                     # --- Send generated article via email ---
                     user_id = str(interaction.user.id)
-                    recipient = load_user_settings(user_id).get("verified", {}).get("email", {}).get(BOT_ID)
+                    
+                    # Email lookup with detailed debugging (same as insert command)
+                    user_settings = load_user_settings(user_id)
+                    debug_log_to_file(f"ARTICLE: User settings for {user_id}: {user_settings}")
+                    debug_log_to_file(f"ARTICLE: BOT_ID being used: {BOT_ID}")
+                    
+                    email_dict = user_settings.get("verified", {}).get("email", {})
+                    debug_log_to_file(f"ARTICLE: Available email keys: {list(email_dict.keys())}")
+                    recipient = email_dict.get(BOT_ID)
+                    
+                    # Fallback: try common bot IDs if primary lookup fails
+                    if not recipient:
+                        for fallback_id in ["tdd_bot", "default_bot", "sewasees_bot"]:
+                            if fallback_id in email_dict:
+                                recipient = email_dict[fallback_id]
+                                debug_log_to_file(f"ARTICLE: Found email with fallback ID {fallback_id}: {recipient}")
+                                break
+                    
+                    debug_log_to_file(f"ARTICLE: Final email recipient for user {user_id}: {recipient}")
+                    
                     if recipient and recipient != "your_email_recipient_here":
+                        logger.info(f"ARTICLE: Sending email to {recipient}")
+                        
                         subject_email = f"[TDD Bot] Article from {file.filename}"
                         # final_content variable holds the markdown text
                         body_email = final_content.replace("\n", "<br>")
@@ -864,8 +885,11 @@ class TDDCog(commands.Cog):
                         attachments = [(filename, final_content.encode("utf-8"), "text/markdown")]
                         try:
                             await send_email(recipient, subject_email, body_email, attachments)
+                            logger.info(f"ARTICLE: Email sent successfully")
+                            debug_log_to_file(f"ARTICLE: Email sent successfully to {recipient}")
                         except Exception as e:
-                            logger.error(f"Failed to send email: {e}")
+                            logger.error(f"ARTICLE: Failed to send email: {e}")
+                            debug_log_to_file(f"ARTICLE: Failed to send email: {e}")
                             # メール送信失敗をメイン結果embedに統合
                             embed.add_field(name="📧 メール送信", value="⚠️ 送信失敗（記事は正常生成）", inline=True)
                     
@@ -888,6 +912,12 @@ class TDDCog(commands.Cog):
                         # メール送信成功をメイン結果embedに統合
                         embed.add_field(name="📧 メール送信", value="✅ 送信完了", inline=True)
                     else:
+                        # メール未登録の理由を詳細ログで記録
+                        if not recipient:
+                            debug_log_to_file(f"ARTICLE: No email recipient found for user {user_id}")
+                        elif recipient == "your_email_recipient_here":
+                            debug_log_to_file(f"ARTICLE: Email recipient is placeholder value for user {user_id}")
+                        
                         # メール未登録をメイン結果embedに統合
                         embed.add_field(name="📧 メール送信", value="❌ 未登録 (`/register_email`で設定)", inline=True)
                     # --- END PATCH ---
