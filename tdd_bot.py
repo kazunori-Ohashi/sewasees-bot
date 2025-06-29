@@ -1182,19 +1182,46 @@ class TDDBot(commands.Bot):
                 logger.info(f"INSERT: OpenAI response received for user {user_id}")
                 debug_log_to_file(f"ON_MESSAGE: OpenAI response received for user {user_id}, markdown_length: {len(markdown)}")
                 
-                sent_msg = await message.channel.send(f"📄 整形済みMarkdown:\n```markdown\n{markdown}\n```")
+                # ファイル名生成
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"insert_result_{timestamp}.md"
+                
+                # 一時ファイル作成とDiscord添付
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as tmp_file:
+                    tmp_file.write(markdown)
+                    tmp_file.flush()
+                    file_obj = discord.File(tmp_file.name, filename=filename)
+                    
+                    # Embedメッセージとファイル添付で送信
+                    embed = discord.Embed(
+                        title="📝 テキスト整形完了",
+                        description="マークダウン形式で整形しました",
+                        color=discord.Color.green()
+                    )
+                    embed.add_field(name="ファイル名", value=filename, inline=True)
+                    embed.add_field(name="文字数", value=f"{len(markdown)} 文字", inline=True)
+                    
+                    sent_msg = await message.channel.send(embed=embed, file=file_obj)
+                    
+                # 一時ファイルクリーンアップ
+                try:
+                    import os
+                    os.unlink(tmp_file.name)
+                    debug_log_to_file(f"ON_MESSAGE: Cleaned up temp file for user {user_id}")
+                except Exception as e:
+                    debug_log_to_file(f"ON_MESSAGE: Failed to cleanup temp file: {e}")
                 
                 # --- Send formatted markdown via email with attachment ---
-                recipient = load_user_settings(user_id).get("verified", {}).get("email", {}).get(BOT_ID)
+                user_settings = load_user_settings(user_id)
+                debug_log_to_file(f"ON_MESSAGE: User settings for {user_id}: {user_settings}")
+                recipient = user_settings.get("verified", {}).get("email", {}).get(BOT_ID)
                 debug_log_to_file(f"ON_MESSAGE: Email recipient for user {user_id}: {recipient}")
                 if recipient:
                     logger.info(f"INSERT: Sending email to {recipient}")
                     
-                    # 添付ファイル作成
-                    from datetime import datetime
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    filename = f"insert_result_{timestamp}.md"
-                    
+                    # 既に生成されたファイル名を使用
                     subject_email = "[TDD Bot] Insert Result"
                     body_email = markdown.replace("\n", "<br>")
                     attachments = [(filename, markdown.encode("utf-8"), "text/markdown")]
@@ -1250,6 +1277,16 @@ class TDDBot(commands.Bot):
     async def on_ready(self):
         """Bot 起動時処理（接続確認＋モデレーターログのみ）"""
         logger.info(f'{self.user} has connected to Discord!')
+        
+        # ユーザー設定ディレクトリの状況をログ出力
+        debug_log_to_file(f"BOT_STARTUP: Checking user settings directory: {USER_SETTINGS_DIR}")
+        if USER_SETTINGS_DIR.exists():
+            user_files = list(USER_SETTINGS_DIR.glob("*.yaml"))
+            debug_log_to_file(f"BOT_STARTUP: Found {len(user_files)} user settings files")
+            for user_file in user_files:
+                debug_log_to_file(f"BOT_STARTUP: User file: {user_file.name}")
+        else:
+            debug_log_to_file(f"BOT_STARTUP: User settings directory does not exist")
 
         # Start file watchers for cache sync
         handler = type("CacheReloadHandler", (FileSystemEventHandler,), {
