@@ -172,7 +172,7 @@ markdown_formatting:
 
   formatting_template:
     content: |
-      以下のテキストを **可読性最優先** で Markdown 整形してください。
+      以下のテキストを **可読性最優先** で Markdown 整形してください。元テキストはオリジナルとして残して下さい。
       ---
       {content}
       ---
